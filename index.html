@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生活记录</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- 顶部导航 -->
+        <header class="header">
+            <h1 class="logo">📝 生活记录</h1>
+            <nav class="nav">
+                <button class="nav-btn active" data-view="home">首页</button>
+                <button class="nav-btn" data-view="day">日视图</button>
+                <button class="nav-btn" data-view="week">周视图</button>
+                <button class="nav-btn" data-view="month">月视图</button>
+            </nav>
+        </header>
+
+        <!-- 日期控制栏（首页隐藏） -->
+        <div class="date-controls" id="dateControls" style="display:none;">
+            <button class="arrow-btn" id="prevBtn">◀</button>
+            <span class="current-date" id="currentDate"></span>
+            <button class="arrow-btn" id="nextBtn">▶</button>
+            <button class="today-btn" id="todayBtn">今天</button>
+        </div>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 首页 -->
+            <div class="view home-view active" id="homeView">
+                <div class="art-title" id="artTitle">一万年太久，只争朝夕！</div>
+                <div class="home-content">
+                    <div class="home-section todo-section">
+                        <h2>📋 本周待办</h2>
+                        <div class="todo-input-row">
+                            <input type="text" id="newTodoInput" placeholder="添加新待办..." class="todo-input">
+                            <button id="addTodoBtn" class="btn btn-primary btn-sm">添加</button>
+                        </div>
+                        <div class="todo-options-row">
+                            <label class="todo-opt-label">📅 <input type="date" id="newTodoDate" class="todo-opt-input"></label>
+                            <label class="todo-opt-label">⏰ <input type="time" id="newTodoTime" class="todo-opt-input"></label>
+                        </div>
+                        <div id="todoList" class="todo-list"></div>
+                        <div class="todo-actions">
+                            <button id="toggleCompletedBtn" class="todo-filter-btn" style="display:none;">👁 查看已完成</button>
+                        </div>
+                        <div class="home-data-buttons">
+                            <button id="exportDataBtn" class="btn-data">📤 导出数据</button>
+                            <button id="importDataBtn" class="btn-data">📥 导入数据</button>
+                            <input type="file" id="importFileInput" accept=".json" style="display:none;">
+                        </div>
+                    </div>
+                    <div class="home-section pomodoro-section">
+                        <h2>🍅 番茄钟</h2>
+                        <input type="text" id="pomodoroTitle" placeholder="专注内容（可选）" class="pomodoro-title-input">
+                        <select id="pomodoroType" class="pomodoro-type-select">
+                            <option value="work">💼 工作</option>
+                            <option value="life">🏠 生活</option>
+                            <option value="study" selected>📚 学习</option>
+                            <option value="sport">🏃 运动</option>
+                            <option value="food">🍽️ 饮食</option>
+                            <option value="play">🎮 纯玩</option>
+                            <option value="other">📌 其他</option>
+                        </select>
+                        <div class="pomodoro-ring-container">
+                            <svg viewBox="0 0 200 200" class="pomodoro-svg">
+                                <circle cx="100" cy="100" r="90" class="ring-bg"/>
+                                <circle cx="100" cy="100" r="90" class="ring-progress" id="pomodoroProgress"/>
+                            </svg>
+                            <div class="pomodoro-time" id="pomodoroTime">25:00</div>
+                            <div class="pomodoro-mode" id="pomodoroMode">专注</div>
+                        </div>
+                        <div class="pomodoro-controls">
+                            <button id="pomodoroStartBtn" class="btn btn-primary">开始</button>
+                            <button id="pomodoroFinishBtn" class="btn btn-finish" style="display:none;">结束专注</button>
+                            <button id="pomodoroResetBtn" class="btn">重置</button>
+                        </div>
+                        <div class="pomodoro-stats">
+                            <span>今日专注: <strong id="todayFocusMin">0</strong> 分钟</span>
+                            <span>🍅 <strong id="todayPomodoroCount">0</strong> 个</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 日视图 -->
+            <div class="view day-view" id="dayView">
+                <div class="day-todo-bar" id="dayTodoBar"></div>
+                <div class="day-timeline-wrapper">
+                    <div class="day-timeline" id="dayTimeline"></div>
+                </div>
+            </div>
+
+            <!-- 周视图 -->
+            <div class="view week-view" id="weekView">
+                <div class="week-grid"></div>
+            </div>
+
+            <!-- 月视图 -->
+            <div class="view month-view" id="monthView">
+                <div class="month-dashboard" id="monthDashboard"></div>
+                <div class="month-grid"></div>
+            </div>
+        </main>
+
+        <!-- 日程记录弹窗 -->
+        <div class="modal" id="recordModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 id="modalTitle">添加日程</h3>
+                    <button class="close-btn" id="closeModal">×</button>
+                </div>
+                <form id="recordForm">
+                    <div class="form-group">
+                        <label>日期</label>
+                        <input type="date" id="recordDate" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>开始时间</label>
+                            <input type="time" id="recordStartTime" required>
+                        </div>
+                        <div class="form-group">
+                            <label>结束时间</label>
+                            <input type="time" id="recordEndTime" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>标题</label>
+                        <input type="text" id="recordTitle" placeholder="做什么..." required>
+                    </div>
+                    <div class="form-group">
+                        <label>分类</label>
+                        <select id="recordType">
+                            <option value="work">💼 工作</option>
+                            <option value="life">🏠 生活</option>
+                            <option value="study">📚 学习</option>
+                            <option value="sport">🏃 运动</option>
+                            <option value="food">🍽️ 饮食</option>
+                            <option value="play">🎮 纯玩</option>
+                            <option value="other">📌 其他</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>备注</label>
+                        <textarea id="recordNote" placeholder="补充说明（可选）"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-delete" id="deleteBtn" style="display:none;">删除</button>
+                        <button type="button" class="btn" id="cancelBtn">取消</button>
+                        <button type="submit" class="btn btn-primary">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 感悟编辑弹窗 -->
+        <div class="modal" id="feelingModal">
+            <div class="modal-content feeling-modal-content">
+                <div class="modal-header">
+                    <h3 id="feelingModalTitle">编辑感悟</h3>
+                    <button class="close-btn" id="closeFeelingModal">×</button>
+                </div>
+                <div class="feeling-form">
+                    <div class="feeling-preview" id="feelingPreview">
+                        <img id="feelingPreviewImg" style="display:none;">
+                        <div class="feeling-preview-text" id="feelingPreviewText"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>感悟（30字以内）</label>
+                        <input type="text" id="feelingText" maxlength="30" placeholder="今天的一句话...">
+                    </div>
+                    <div class="form-group">
+                        <label>背景图片</label>
+                        <input type="file" id="feelingImage" accept="image/*">
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-delete" id="clearFeelingBtn">清空</button>
+                        <button type="button" class="btn" id="cancelFeelingBtn">取消</button>
+                        <button type="button" class="btn btn-primary" id="saveFeelingBtn">保存</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 浮动添加按钮 -->
+        <button class="fab" id="fabAdd" style="display:none;">+</button>
+
+        <!-- Toast 通知 -->
+        <div class="toast" id="toast"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
