@@ -2,7 +2,7 @@
 const STORAGE_KEY = 'life_recorder_data';
 
 function getDefaultData() {
-    return { records: [], todos: [], feelings: {} };
+    return { records: [], todos: [], feelings: {}, stats: { sleep: [], weight: [], expense: [], exercise: [] } };
 }
 
 function getData() {
@@ -13,13 +13,16 @@ function getData() {
         if (!data.records) data.records = [];
         if (!data.todos) data.todos = [];
         if (!data.feelings) data.feelings = {};
-        // 迁移：旧 feelings 从 string 转为 object
+        if (!data.stats) data.stats = { sleep: [], weight: [], expense: [], exercise: [] };
+        if (!data.stats.sleep) data.stats.sleep = [];
+        if (!data.stats.weight) data.stats.weight = [];
+        if (!data.stats.expense) data.stats.expense = [];
+        if (!data.stats.exercise) data.stats.exercise = [];
         for (const k in data.feelings) {
             if (typeof data.feelings[k] === 'string') {
                 data.feelings[k] = { text: data.feelings[k], image: null };
             }
         }
-        // 迁移：旧 todos 添加 date 字段
         data.todos.forEach(t => {
             if (!t.date) t.date = t.createdAt || formatDate(new Date());
             if (!t.time) t.time = '';
@@ -42,7 +45,7 @@ const TYPE_CONFIG = {
     sport: { icon: '🏃', label: '运动' },
     food:  { icon: '🍽️', label: '饮食' },
     play:  { icon: '🎮', label: '纯玩' },
-    focus: { icon: '🍅', label: '专注' }, // 保留兼容旧数据
+    focus: { icon: '🍅', label: '专注' },
     other: { icon: '📌', label: '其他' }
 };
 
@@ -117,10 +120,10 @@ function visualHour(realHour) {
 
 function visualY(timeStr) {
     const [h, m] = timeStr.split(':').map(Number);
-    return (visualHour(h) * 60 + m); // px, 1min = 1px
+    return visualHour(h) * 60 + m;
 }
 
-// ===== 事件合并（按标题） =====
+// ===== 事件合并 =====
 function getMergedEvents(dateStr, maxN) {
     const data = getData();
     const records = data.records.filter(r => r.date === dateStr);
@@ -143,45 +146,32 @@ function getMonthStats(year, month) {
     const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
     const daysInMonth = getDaysInMonth(year, month);
     const totalHours = daysInMonth * 24;
-
-    // 本月已度过小时数
     const now = new Date();
     let elapsedHours = 0;
     if (now.getFullYear() === year && now.getMonth() === month) {
-        // 当前月：已过天数 * 24 + 当前小时
         elapsedHours = (now.getDate() - 1) * 24 + now.getHours() + now.getMinutes() / 60;
     } else if (now > new Date(year, month + 1, 0)) {
         elapsedHours = totalHours;
     }
     const percent = ((elapsedHours / totalHours) * 100).toFixed(1);
-
-    // 累计专注分钟（fromPomodoro 标记的记录）
     let focusMinutes = 0;
     data.records.forEach(r => {
         if (r.date && r.date.startsWith(prefix) && r.fromPomodoro) {
             focusMinutes += calcDurationMinutes(r.startTime, r.endTime);
         }
     });
-
-    // 完成待办 & 未完成待办
-    let completedCount = 0;
-    let pendingCount = 0;
+    let completedCount = 0, pendingCount = 0;
     data.todos.forEach(t => {
         if (t.completed) {
             if (t.completedAt && t.completedAt.startsWith(prefix)) completedCount++;
-        } else {
-            pendingCount++;
-        }
+        } else { pendingCount++; }
     });
-
     return { percent, focusMinutes, completedCount, pendingCount };
 }
 
-// ===== 本周待办 =====
 function getWeekTodos() {
     const data = getData();
-    const now = new Date();
-    const weekStart = getWeekStart(now);
+    const weekStart = getWeekStart(new Date());
     const weekStartStr = formatDate(weekStart);
     return data.todos.filter(t => {
         if (!t.completed) return true;
@@ -190,7 +180,6 @@ function getWeekTodos() {
     });
 }
 
-// ===== 某日待办 =====
 function getDayTodos(dateStr) {
     const data = getData();
     return data.todos.filter(t => t.date === dateStr);
@@ -206,13 +195,10 @@ async function loadQuotes() {
         const text = await resp.text();
         const quotes = text.split('\n').map(s => s.trim()).filter(s => s.length > 0);
         if (quotes.length === 0) return;
-        // 每日随机：用日期做种子
         const today = new Date();
         const seed = today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
         dailyQuote = quotes[seed % quotes.length];
-    } catch (e) {
-        // fetch 失败则使用默认文案
-    }
+    } catch (e) {}
 }
 
 // ===== 状态 =====
@@ -221,6 +207,7 @@ let currentDate = new Date();
 let editingRecordId = null;
 let editingFeelingDate = null;
 let showCompletedTodos = false;
+let carouselTimer = null;
 
 // ===== DOM =====
 const el = {};
@@ -239,7 +226,6 @@ function initDOM() {
     el.monthView = document.getElementById('monthView');
     el.monthDashboard = document.getElementById('monthDashboard');
     el.artTitle = document.getElementById('artTitle');
-    // Record modal
     el.recordModal = document.getElementById('recordModal');
     el.modalTitle = document.getElementById('modalTitle');
     el.recordForm = document.getElementById('recordForm');
@@ -252,7 +238,6 @@ function initDOM() {
     el.deleteBtn = document.getElementById('deleteBtn');
     el.cancelBtn = document.getElementById('cancelBtn');
     el.closeModal = document.getElementById('closeModal');
-    // Feeling modal
     el.feelingModal = document.getElementById('feelingModal');
     el.feelingModalTitle = document.getElementById('feelingModalTitle');
     el.closeFeelingModal = document.getElementById('closeFeelingModal');
@@ -264,29 +249,19 @@ function initDOM() {
     el.saveFeelingBtn = document.getElementById('saveFeelingBtn');
     el.cancelFeelingBtn = document.getElementById('cancelFeelingBtn');
     el.clearFeelingBtn = document.getElementById('clearFeelingBtn');
-    // FAB & Toast
     el.fabAdd = document.getElementById('fabAdd');
     el.toast = document.getElementById('toast');
-    // Todo
     el.newTodoInput = document.getElementById('newTodoInput');
     el.newTodoDate = document.getElementById('newTodoDate');
     el.newTodoTime = document.getElementById('newTodoTime');
     el.addTodoBtn = document.getElementById('addTodoBtn');
     el.todoList = document.getElementById('todoList');
-    // Pomodoro
-    el.pomodoroTitle = document.getElementById('pomodoroTitle');
-    el.pomodoroType = document.getElementById('pomodoroType');
-    el.pomodoroTime = document.getElementById('pomodoroTime');
-    el.pomodoroMode = document.getElementById('pomodoroMode');
-    el.pomodoroProgress = document.getElementById('pomodoroProgress');
-    el.pomodoroStartBtn = document.getElementById('pomodoroStartBtn');
-    el.pomodoroFinishBtn = document.getElementById('pomodoroFinishBtn');
-    el.pomodoroResetBtn = document.getElementById('pomodoroResetBtn');
-    el.todayFocusMin = document.getElementById('todayFocusMin');
-    el.todayPomodoroCount = document.getElementById('todayPomodoroCount');
-    // Day view
     el.dayTodoBar = document.getElementById('dayTodoBar');
     el.dayTimeline = document.getElementById('dayTimeline');
+    el.carouselContainer = document.getElementById('carouselContainer');
+    el.nlInput = document.getElementById('nlInput');
+    el.nlParseBtn = document.getElementById('nlParseBtn');
+    el.nlPreview = document.getElementById('nlPreview');
 }
 
 // ===== 视图切换 =====
@@ -294,12 +269,11 @@ function switchView(view) {
     currentView = view;
     el.navBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
     el.views.forEach(v => v.classList.toggle('active', v.id === `${view}View`));
-    el.dateControls.style.display = view === 'home' ? 'none' : 'flex';
-    el.fabAdd.style.display = view === 'home' ? 'none' : 'block';
+    el.dateControls.style.display = (view === 'home' || view === 'stats') ? 'none' : 'flex';
+    el.fabAdd.style.display = (view === 'home' || view === 'stats') ? 'none' : 'block';
     render();
 }
 
-// ===== 日期导航 =====
 function navigateDate(dir) {
     if (currentView === 'day') currentDate.setDate(currentDate.getDate() + dir);
     else if (currentView === 'week') currentDate.setDate(currentDate.getDate() + dir * 7);
@@ -307,10 +281,7 @@ function navigateDate(dir) {
     render();
 }
 
-function goToday() {
-    currentDate = new Date();
-    render();
-}
+function goToday() { currentDate = new Date(); render(); }
 
 function updateDateDisplay() {
     if (currentView === 'day') {
@@ -324,47 +295,40 @@ function updateDateDisplay() {
     }
 }
 
-// ===== 渲染总控 =====
 function render() {
     updateDateDisplay();
     if (currentView === 'home') renderHomeView();
     else if (currentView === 'day') renderDayView();
     else if (currentView === 'week') renderWeekView();
     else if (currentView === 'month') renderMonthView();
+    else if (currentView === 'stats') Stats.render();
 }
 
 // ===== 首页 =====
 function renderHomeView() {
     el.artTitle.textContent = dailyQuote;
     renderTodoList();
-    updatePomodoroStats();
+    renderCarousel();
 }
 
 function renderTodoList() {
     const todos = getWeekTodos();
     const toggleBtn = document.getElementById('toggleCompletedBtn');
-    
-    // Check if there are completed todos
     const hasCompleted = todos.some(t => t.completed);
     if (toggleBtn) {
         toggleBtn.style.display = hasCompleted ? 'inline-block' : 'none';
         toggleBtn.textContent = showCompletedTodos ? '🙈 隐藏已完成' : '👁 查看已完成';
         toggleBtn.classList.toggle('active', showCompletedTodos);
     }
-
-    // Filter based on showCompletedTodos
     const displayTodos = showCompletedTodos ? todos : todos.filter(t => !t.completed);
-    
     displayTodos.sort((a, b) => {
         if (a.completed !== b.completed) return a.completed ? 1 : -1;
         return (b.createdAt || '').localeCompare(a.createdAt || '');
     });
-
     if (displayTodos.length === 0) {
-        el.todoList.innerHTML = '<div style="text-align:center;color:var(--text-light);padding:20px;">暂无待办，添加一个吧 ✨</div>';
+        el.todoList.innerHTML = '<div style="text-align:center;color:var(--text-light);padding:20px;">暂无待办 ✨</div>';
         return;
     }
-
     el.todoList.innerHTML = displayTodos.map(t => {
         const dateBadge = t.date ? `<span class="todo-date-badge">${formatDateShort(t.date)}${t.time ? ' ' + t.time : ''}</span>` : '';
         return `<div class="todo-item" data-id="${t.id}">
@@ -376,9 +340,188 @@ function renderTodoList() {
     }).join('');
 }
 
-function toggleShowCompleted() {
-    showCompletedTodos = !showCompletedTodos;
-    renderTodoList();
+// ===== 图片轮播 =====
+function renderCarousel() {
+    if (carouselTimer) { clearInterval(carouselTimer); carouselTimer = null; }
+    const data = getData();
+    // 取近3日有图片的感悟
+    const today = new Date();
+    const slides = [];
+    for (let i = 0; i < 7 && slides.length < 3; i++) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const ds = formatDate(d);
+        const f = data.feelings[ds];
+        if (f && f.image) {
+            slides.push({ date: ds, text: f.text || '', image: f.image });
+        }
+    }
+    if (slides.length === 0) {
+        el.carouselContainer.innerHTML = '<div class="carousel-empty">暂无图片，去月视图添加感悟图片吧 📷</div>';
+        return;
+    }
+    let html = '';
+    slides.forEach((s, i) => {
+        html += `<div class="carousel-slide ${i === 0 ? 'active' : ''}" style="background-image:url('${s.image}')">
+            <div class="carousel-slide-overlay">${formatDateShort(s.date)} ${escapeHtml(s.text)}</div>
+        </div>`;
+    });
+    html += '<div class="carousel-dots">';
+    slides.forEach((_, i) => {
+        html += `<div class="carousel-dot ${i === 0 ? 'active' : ''}" data-idx="${i}"></div>`;
+    });
+    html += '</div>';
+    el.carouselContainer.innerHTML = html;
+
+    if (slides.length > 1) {
+        let current = 0;
+        const dotEls = el.carouselContainer.querySelectorAll('.carousel-dot');
+        const slideEls = el.carouselContainer.querySelectorAll('.carousel-slide');
+        dotEls.forEach(dot => {
+            dot.addEventListener('click', () => {
+                current = parseInt(dot.dataset.idx);
+                slideEls.forEach((s, i) => s.classList.toggle('active', i === current));
+                dotEls.forEach((d, i) => d.classList.toggle('active', i === current));
+            });
+        });
+        carouselTimer = setInterval(() => {
+            current = (current + 1) % slides.length;
+            slideEls.forEach((s, i) => s.classList.toggle('active', i === current));
+            dotEls.forEach((d, i) => d.classList.toggle('active', i === current));
+        }, 4000);
+    }
+}
+
+// ===== 自然语言解析 =====
+function parseNLInput(text) {
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+    const results = [];
+    const now = new Date();
+
+    lines.forEach(line => {
+        let date = formatDate(now);
+        let startTime = '';
+        let endTime = '';
+        let title = '';
+        let type = 'other';
+        let error = null;
+
+        let remaining = line;
+
+        // 提取日期：今天/明天/后天/X月X日/周X
+        const todayStr = formatDate(now);
+        const tomorrow = new Date(now); tomorrow.setDate(tomorrow.getDate() + 1);
+        const afterTomorrow = new Date(now); afterTomorrow.setDate(afterTomorrow.getDate() + 2);
+
+        if (/^今天/.test(remaining)) {
+            date = todayStr;
+            remaining = remaining.replace(/^今天\s*/, '');
+        } else if (/^明天/.test(remaining)) {
+            date = formatDate(tomorrow);
+            remaining = remaining.replace(/^明天\s*/, '');
+        } else if (/^后天/.test(remaining)) {
+            date = formatDate(afterTomorrow);
+            remaining = remaining.replace(/^后天\s*/, '');
+        } else {
+            // X月X日 or X-X
+            const dateMatch = remaining.match(/(\d{1,2})月(\d{1,2})[日号]?\s*/);
+            if (dateMatch) {
+                const m = parseInt(dateMatch[1]);
+                const d = parseInt(dateMatch[2]);
+                const y = now.getFullYear();
+                date = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                remaining = remaining.replace(dateMatch[0], '');
+            }
+        }
+
+        // 提取时间：下午2-4点 / 14:00-15:00 / 上午9-11点
+        const timePatterns = [
+            /(?:上午|早上)?(\d{1,2})[:：](\d{2})\s*[-~到至]\s*(?:上午|下午)?(\d{1,2})[:：](\d{2})/,
+            /(?:上午|早上)(\d{1,2})\s*[-~到至]\s*(?:下午)?(\d{1,2})\s*[点时]/,
+            /(?:下午)?(\d{1,2})\s*[-~到至]\s*(\d{1,2})\s*[点时]/,
+            /(\d{1,2})[:：](\d{2})\s*[-~到至]\s*(\d{1,2})[:：](\d{2})/,
+        ];
+
+        // 标准 HH:MM-HH:MM
+        const stdTimeMatch = remaining.match(/(\d{1,2})[:：](\d{2})\s*[-~到至]\s*(\d{1,2})[:：](\d{2})/);
+        if (stdTimeMatch) {
+            startTime = `${stdTimeMatch[1].padStart(2,'0')}:${stdTimeMatch[2]}`;
+            endTime = `${stdTimeMatch[3].padStart(2,'0')}:${stdTimeMatch[4]}`;
+            remaining = remaining.replace(stdTimeMatch[0], '');
+        } else {
+            // 上午X-Y点
+            const amPmMatch = remaining.match(/(上午|早上)?(\d{1,2})\s*[-~到至]\s*(下午|晚上)?(\d{1,2})\s*[点时]/);
+            if (amPmMatch) {
+                let sh = parseInt(amPmMatch[2]);
+                let eh = parseInt(amPmMatch[4]);
+                if ((amPmMatch[3] === '下午' || amPmMatch[3] === '晚上') && eh < 12) eh += 12;
+                if (amPmMatch[1] === '上午' || amPmMatch[1] === '早上') { /* keep */ }
+                else if (!amPmMatch[3] && sh < 12 && eh < 12) { /* 默认上午 */ }
+                startTime = `${String(sh).padStart(2,'0')}:00`;
+                endTime = `${String(eh).padStart(2,'0')}:00`;
+                remaining = remaining.replace(amPmMatch[0], '');
+            }
+        }
+
+        // 剩余部分作为标题
+        title = remaining.trim();
+
+        // 推断类型
+        const titleLower = title.toLowerCase();
+        if (/学习|高数|英语|论文|课程|作业|考试|复习|看书|阅读/.test(title)) type = 'study';
+        else if (/运动|跑步|健身|游泳|篮球|足球|瑜伽|散步/.test(title)) type = 'sport';
+        else if (/吃饭|午餐|晚餐|早餐|聚餐|火锅|奶茶/.test(title)) type = 'food';
+        else if (/工作|开会|组会|汇报|项目|会议|面试|实习/.test(title)) type = 'work';
+        else if (/游戏|电影|逛街|旅游|玩|聚会/.test(title)) type = 'play';
+        else if (/看病|医院|牙|体检|理发/.test(title)) type = 'life';
+
+        if (!title) {
+            error = '未识别到标题';
+        }
+        if (!startTime || !endTime) {
+            error = (error ? error + '；' : '') + '未识别到时间（如：下午2-4点）';
+        }
+
+        results.push({ date, startTime, endTime, title, type, error });
+    });
+
+    return results;
+}
+
+function handleNLParse() {
+    const text = el.nlInput.value.trim();
+    if (!text) return;
+    const parsed = parseNLInput(text);
+    let html = '';
+    let added = 0;
+    const data = getData();
+
+    parsed.forEach(p => {
+        if (p.error) {
+            html += `<div class="nl-preview-item error">❌ ${escapeHtml(p.title || '无法解析')} — ${p.error}</div>`;
+        } else {
+            const config = TYPE_CONFIG[p.type] || TYPE_CONFIG.other;
+            data.records.push({
+                id: Date.now().toString() + Math.random().toString(36).slice(2,6),
+                date: p.date,
+                startTime: p.startTime,
+                endTime: p.endTime,
+                title: p.title,
+                type: p.type,
+                note: ''
+            });
+            added++;
+            html += `<div class="nl-preview-item">✅ ${config.icon} ${formatDateShort(p.date)} ${p.startTime}-${p.endTime} ${escapeHtml(p.title)}</div>`;
+        }
+    });
+
+    if (added > 0) {
+        saveData(data);
+        showToast(`已添加 ${added} 条日程`);
+    }
+    el.nlPreview.innerHTML = html;
+    el.nlInput.value = '';
+    setTimeout(() => { el.nlPreview.innerHTML = ''; }, 5000);
 }
 
 // ===== 日视图 =====
@@ -388,7 +531,6 @@ function renderDayView() {
     const records = data.records.filter(r => r.date === dateStr);
     const dayTodos = getDayTodos(dateStr);
 
-    // 待办栏
     if (dayTodos.length > 0) {
         el.dayTodoBar.style.display = 'block';
         el.dayTodoBar.innerHTML = '<h4>📋 当日待办</h4>' + dayTodos.map(t => `
@@ -403,14 +545,11 @@ function renderDayView() {
         el.dayTodoBar.style.display = 'none';
     }
 
-    // 时间轴：显示顺序 6,7,...,23,0,1,2,3,4,5
     const displayOrder = [];
     for (let i = 6; i <= 23; i++) displayOrder.push(i);
     for (let i = 0; i <= 5; i++) displayOrder.push(i);
 
     let html = '';
-
-    // 绘制小时线和可点击区域
     displayOrder.forEach((realHour, idx) => {
         const yPos = idx * 60;
         const hourStr = String(realHour).padStart(2, '0') + ':00';
@@ -418,33 +557,20 @@ function renderDayView() {
         html += `<div class="day-hour-slot" style="top:${yPos}px;" data-date="${dateStr}" data-hour="${realHour}"></div>`;
     });
 
-    // 在 23:00 和 0:00 之间画分隔线（idx=18 是 0:00）
-    const sepY = 18 * 60; // 18 hours after 6:00
+    const sepY = 18 * 60;
     html += `<div class="day-separator" style="top:${sepY}px;"></div>`;
     html += `<div class="day-separator-label" style="top:${sepY}px;">── 次日凌晨 ──</div>`;
 
-    // 绘制事件块（绝对定位）
     const layoutResult = layoutEvents(records);
     layoutResult.forEach(item => {
         const record = item.record;
         const config = TYPE_CONFIG[record.type] || TYPE_CONFIG.other;
-
-        // 计算视觉位置
         let startY = visualY(record.startTime);
         let endY = visualY(record.endTime);
-
-        // 处理跨 6AM 边界的情况
-        if (endY <= startY) {
-            // 事件跨越了 6AM 边界（如 5:00-7:00）
-            // 在视觉布局中，5:00 在底部，7:00 在顶部
-            // 只显示下半部分（从起始时间到时间轴底部）
-            endY = 1440;
-        }
-
+        if (endY <= startY) endY = 1440;
         const top = startY;
         const height = Math.max(endY - startY, 20);
         const leftPct = item.col * item.widthPct;
-
         html += `<div class="day-event-block ${record.type}"
             style="top:${top}px; height:${height}px; left:calc(70px + ${leftPct}%); width:calc(${item.widthPct}% - 4px);"
             data-id="${record.id}">
@@ -455,17 +581,11 @@ function renderDayView() {
     });
 
     el.dayTimeline.innerHTML = html;
-
-    // 滚动到 6:00 位置（即顶部）
     const wrapper = el.dayView.querySelector('.day-timeline-wrapper');
-    if (wrapper && !wrapper._scrolled) {
-        wrapper.scrollTop = 0;
-        wrapper._scrolled = true;
-    }
+    if (wrapper && !wrapper._scrolled) { wrapper.scrollTop = 0; wrapper._scrolled = true; }
 
-    // 事件绑定
     el.dayTimeline.querySelectorAll('.day-hour-slot').forEach(slot => {
-        slot.addEventListener('click', (e) => {
+        slot.addEventListener('click', () => {
             const hour = String(slot.dataset.hour).padStart(2, '0');
             const endHour = String(Math.min(23, parseInt(hour) + 1)).padStart(2, '0');
             openAddModal(slot.dataset.date, `${hour}:00`, `${endHour}:00`);
@@ -480,24 +600,17 @@ function renderDayView() {
     });
 }
 
-// ===== 事件布局算法（并行检测） =====
 function layoutEvents(records) {
     if (records.length === 0) return [];
-
-    // 按开始时间排序
     const sorted = [...records].sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-    // 分配列
-    const columns = []; // 每列存放不重叠的事件
-    const assignments = []; // { record, col }
-
+    const columns = [];
+    const assignments = [];
     sorted.forEach(record => {
         const rStart = timeToMinutes(record.startTime);
         const rEnd = timeToMinutes(record.endTime);
         let placed = false;
         for (let c = 0; c < columns.length; c++) {
-            const lastEnd = columns[c];
-            if (rStart >= lastEnd) {
+            if (rStart >= columns[c]) {
                 columns[c] = rEnd > rStart ? rEnd : rStart + 60;
                 assignments.push({ record, col: c });
                 placed = true;
@@ -509,30 +622,17 @@ function layoutEvents(records) {
             assignments.push({ record, col: columns.length - 1 });
         }
     });
-
-    // 计算每个事件所在重叠组的最大列数
-    // 简化方案：对每个事件，找出所有与它时间重叠的事件，取最大列数
-    const result = assignments.map(a => {
+    return assignments.map(a => {
         const rStart = timeToMinutes(a.record.startTime);
         const rEnd = timeToMinutes(a.record.endTime);
         let maxCol = a.col;
         assignments.forEach(b => {
-            const bStart = timeToMinutes(b.record.startTime);
-            const bEnd = timeToMinutes(b.record.endTime);
-            // 检查是否重叠
-            if (bStart < rEnd && bEnd > rStart) {
+            if (timeToMinutes(b.record.startTime) < rEnd && timeToMinutes(b.record.endTime) > rStart) {
                 maxCol = Math.max(maxCol, b.col);
             }
         });
-        const totalCols = maxCol + 1;
-        return {
-            record: a.record,
-            col: a.col,
-            widthPct: 100 / totalCols
-        };
+        return { record: a.record, col: a.col, widthPct: 100 / (maxCol + 1) };
     });
-
-    return result;
 }
 
 // ===== 周视图 =====
@@ -540,21 +640,15 @@ function renderWeekView() {
     const weekGrid = el.weekView.querySelector('.week-grid');
     const weekStart = getWeekStart(currentDate);
     const weekDays = ['一', '二', '三', '四', '五', '六', '日'];
-    const data = getData();
-
     let html = '';
     for (let i = 0; i < 7; i++) {
         const date = new Date(weekStart);
         date.setDate(date.getDate() + i);
         const dateStr = formatDate(date);
         const todayClass = isToday(date) ? 'today' : '';
-
-        // 合并事件（最多7条）
         const merged = getMergedEvents(dateStr, 7);
         const allMerged = getMergedEvents(dateStr);
         const hasMore = allMerged.length > 7;
-
-        // 当日待办
         const dayTodos = getDayTodos(dateStr);
 
         html += `<div class="week-day ${todayClass}">
@@ -564,7 +658,6 @@ function renderWeekView() {
             </div>
             <div class="week-day-content">
                 <div class="week-events-list">`;
-
         if (merged.length === 0) {
             html += '<div style="font-size:11px;color:var(--text-light);padding:4px;">暂无记录</div>';
         } else {
@@ -578,14 +671,9 @@ function renderWeekView() {
                     </div>
                 </div>`;
             });
-            if (hasMore) {
-                html += `<div class="week-more">...还有 ${allMerged.length - 7} 项</div>`;
-            }
+            if (hasMore) html += `<div class="week-more">...还有 ${allMerged.length - 7} 项</div>`;
         }
-
         html += `</div>`;
-
-        // 待办区域（紧跟日程下方，允许浮动）
         if (dayTodos.length > 0) {
             html += `<div class="week-todos-section"><h5>待办</h5>`;
             dayTodos.forEach(t => {
@@ -597,25 +685,17 @@ function renderWeekView() {
             });
             html += `</div>`;
         }
-
         html += `</div>
             <button class="week-add-btn" data-date="${dateStr}">+ 添加日程</button>
         </div>`;
     }
-
     weekGrid.innerHTML = html;
-
-    // 事件绑定
     weekGrid.querySelectorAll('.week-add-btn').forEach(btn => {
         btn.addEventListener('click', () => openAddModal(btn.dataset.date, '09:00', '10:00'));
     });
-
-    // 周视图待办点击切换
     weekGrid.querySelectorAll('.week-todo-item').forEach(item => {
-        item.style.cursor = 'pointer';
         item.addEventListener('click', () => {
-            const todoId = item.dataset.todoId;
-            if (todoId) toggleTodo(todoId);
+            if (item.dataset.todoId) toggleTodo(item.dataset.todoId);
         });
     });
 }
@@ -624,8 +704,6 @@ function renderWeekView() {
 function renderMonthView() {
     const year = currentDate.getFullYear();
     const month = currentDate.getMonth();
-
-    // 看板
     const stats = getMonthStats(year, month);
     el.monthDashboard.innerHTML = `
         <span>📊 本月看板：</span>
@@ -635,7 +713,6 @@ function renderMonthView() {
         尚有 <span class="highlight">${stats.pendingCount}</span> 件待办待完成。
     `;
 
-    // 日历
     const monthGrid = el.monthView.querySelector('.month-grid');
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
@@ -657,8 +734,6 @@ function renderMonthView() {
         const isCurrentMonth = date.getMonth() === month;
         const todayClass = isToday(date) ? 'today' : '';
         const otherClass = !isCurrentMonth ? 'other-month' : '';
-
-        // 感悟
         const feeling = data.feelings[dateStr];
         const hasFeeling = feeling && (feeling.text || feeling.image);
         const feelingClass = hasFeeling ? 'has-feeling' : '';
@@ -667,25 +742,26 @@ function renderMonthView() {
         html += `<div class="month-cell ${todayClass} ${otherClass} ${feelingClass}" style="${bgStyle}" data-date="${dateStr}">
             <div class="month-cell-inner">
                 <div class="month-date">${date.getDate()}</div>`;
-
         if (hasFeeling && feeling.text) {
-            html += `<div class="month-feeling-text">${escapeHtml(feeling.text)}</div>`;
+            // 自适应字号：字少大一些，字多小一些
+            const len = feeling.text.length;
+            let fontSize;
+            if (len <= 5) fontSize = '16px';
+            else if (len <= 10) fontSize = '14px';
+            else if (len <= 15) fontSize = '12px';
+            else if (len <= 20) fontSize = '11px';
+            else fontSize = '10px';
+            html += `<div class="month-feeling-text" style="font-size:${fontSize}">${escapeHtml(feeling.text)}</div>`;
         }
-
         html += `</div></div>`;
-
         if (date >= lastDay && date.getDay() === 0) break;
     }
 
     html += '</div>';
     monthGrid.innerHTML = html;
-
-    // 点击日期 → 编辑感悟
     monthGrid.querySelectorAll('.month-cell').forEach(cell => {
-        cell.addEventListener('click', (e) => {
-            if (!cell.classList.contains('other-month')) {
-                openFeelingModal(cell.dataset.date);
-            }
+        cell.addEventListener('click', () => {
+            if (!cell.classList.contains('other-month')) openFeelingModal(cell.dataset.date);
         });
     });
 }
@@ -720,10 +796,7 @@ function openEditModal(id) {
     el.recordModal.classList.add('active');
 }
 
-function closeModalFn() {
-    el.recordModal.classList.remove('active');
-    editingRecordId = null;
-}
+function closeModalFn() { el.recordModal.classList.remove('active'); editingRecordId = null; }
 
 function handleSubmit(e) {
     e.preventDefault();
@@ -763,14 +836,10 @@ function openFeelingModal(dateStr) {
     editingFeelingDate = dateStr;
     const data = getData();
     const feeling = data.feelings[dateStr] || { text: '', image: null };
-
     el.feelingModalTitle.textContent = `编辑感悟 - ${formatDateDisplay(new Date(dateStr + 'T00:00:00'))}`;
     el.feelingText.value = feeling.text || '';
     el.feelingImage.value = '';
-
-    // 更新预览
     updateFeelingPreview(feeling.text || '', feeling.image);
-
     el.feelingModal.classList.add('active');
 }
 
@@ -784,31 +853,22 @@ function updateFeelingPreview(text, imageData) {
     }
 }
 
-function closeFeelingModalFn() {
-    el.feelingModal.classList.remove('active');
-    editingFeelingDate = null;
-}
+function closeFeelingModalFn() { el.feelingModal.classList.remove('active'); editingFeelingDate = null; }
 
 function saveFeeling() {
     if (!editingFeelingDate) return;
     const data = getData();
     const text = el.feelingText.value.trim().slice(0, 30);
-
     const processAndSave = (imageData) => {
         data.feelings[editingFeelingDate] = { text, image: imageData };
         saveData(data);
         closeFeelingModalFn();
         render();
     };
-
-    // 检查是否有新图片
     const file = el.feelingImage.files[0];
     if (file) {
-        compressImage(file, 400, 300, (dataUrl) => {
-            processAndSave(dataUrl);
-        });
+        compressImage(file, 400, 300, (dataUrl) => processAndSave(dataUrl));
     } else {
-        // 保留旧图片
         const old = data.feelings[editingFeelingDate] || {};
         processAndSave(old.image || null);
     }
@@ -830,21 +890,14 @@ function compressImage(file, maxW, maxH, callback) {
         img.onload = () => {
             const canvas = document.createElement('canvas');
             let w = img.width, h = img.height;
-            // 裁切为 maxW:maxH 比例
             const targetRatio = maxW / maxH;
             const imgRatio = w / h;
             let sx = 0, sy = 0, sw = w, sh = h;
-            if (imgRatio > targetRatio) {
-                sw = h * targetRatio;
-                sx = (w - sw) / 2;
-            } else {
-                sh = w / targetRatio;
-                sy = (h - sh) / 2;
-            }
+            if (imgRatio > targetRatio) { sw = h * targetRatio; sx = (w - sw) / 2; }
+            else { sh = w / targetRatio; sy = (h - sh) / 2; }
             canvas.width = maxW;
             canvas.height = maxH;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, maxW, maxH);
+            canvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, maxW, maxH);
             callback(canvas.toDataURL('image/jpeg', 0.7));
         };
         img.src = e.target.result;
@@ -856,7 +909,6 @@ function compressImage(file, maxW, maxH, callback) {
 function addTodo() {
     const title = el.newTodoInput.value.trim();
     if (!title) return;
-
     const data = getData();
     const now = new Date();
     data.todos.push({
@@ -870,7 +922,6 @@ function addTodo() {
     });
     saveData(data);
     el.newTodoInput.value = '';
-    // 重置日期时间为当前
     setTodoDefaults();
     renderTodoList();
 }
@@ -899,192 +950,431 @@ function setTodoDefaults() {
     el.newTodoTime.value = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
 }
 
-// ===== 番茄钟 =====
-const Pomodoro = {
-    WORK_DURATION: 25 * 60,
-    state: 'idle', // idle, running, paused, completed
-    timeLeft: 25 * 60,
-    totalTime: 25 * 60,
-    interval: null,
-    actualStartTime: null,
-    actualStartDate: null,
-    overtimeSeconds: 0,
-    circumference: 2 * Math.PI * 90,
-
-    start() {
-        if (this.state === 'idle' || this.state === 'paused') {
-            if (this.state === 'idle') {
-                const now = new Date();
-                this.actualStartTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-                this.actualStartDate = formatDate(now);
-                this.overtimeSeconds = 0;
-            }
-            this.state = 'running';
-            this.interval = setInterval(() => this.tick(), 1000);
-            this.updateUI();
-        }
+// ===== 统计页面 =====
+const Stats = {
+    render() {
+        this.setDefaultDates();
+        this.renderSleepChart();
+        this.renderWeightChart();
+        this.renderExpenseChart();
+        this.renderExerciseChart();
+        this.renderSleepList();
+        this.renderWeightList();
+        this.renderExpenseList();
+        this.renderExerciseList();
     },
 
-    pause() {
-        if (this.state === 'running') {
-            this.state = 'paused';
-            clearInterval(this.interval);
-            this.updateUI();
-        }
-    },
-
-    reset() {
-        clearInterval(this.interval);
-        this.state = 'idle';
-        this.timeLeft = this.WORK_DURATION;
-        this.totalTime = this.WORK_DURATION;
-        this.actualStartTime = null;
-        this.actualStartDate = null;
-        this.overtimeSeconds = 0;
-        el.pomodoroProgress.classList.remove('overtime');
-        this.updateUI();
-    },
-
-    tick() {
-        if (this.timeLeft > 0) {
-            this.timeLeft--;
-            if (this.timeLeft <= 0) {
-                // 25分钟到
-                playBeep();
-                this.state = 'completed';
-                clearInterval(this.interval);
-                showToast('🍅 25分钟到！点击「结束专注」记录时长');
-            }
-        } else {
-            // 超时计时
-            this.overtimeSeconds++;
-        }
-        this.updateUI();
-    },
-
-    finish() {
-        // 结束专注：记录实际时长
-        const now = new Date();
-        const endTime = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-        const title = el.pomodoroTitle.value.trim() || '🍅 专注';
-        const type = el.pomodoroType.value || 'study';
-
-        const data = getData();
-        data.records.push({
-            id: Date.now().toString(),
-            date: this.actualStartDate || formatDate(now),
-            startTime: this.actualStartTime,
-            endTime: endTime,
-            title: title,
-            type: type,
-            note: '',
-            fromPomodoro: true
+    setDefaultDates() {
+        const today = formatDate(new Date());
+        ['sleepDate','weightDate','expenseDate','exerciseDate'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.value) el.value = today;
         });
-        saveData(data);
-
-        const totalMins = calcDurationMinutes(this.actualStartTime, endTime);
-        showToast(`🍅 专注完成！共 ${totalMins} 分钟`);
-        this.reset();
-        updatePomodoroStats();
-        if (currentView === 'day') render();
     },
 
-    updateUI() {
-        let displayTime;
-        if (this.state === 'completed' || (this.state === 'running' && this.timeLeft <= 0)) {
-            // 显示超时
-            displayTime = `+${String(Math.floor(this.overtimeSeconds / 60)).padStart(2,'0')}:${String(this.overtimeSeconds % 60).padStart(2,'0')}`;
-        } else {
-            const mins = Math.floor(this.timeLeft / 60);
-            const secs = this.timeLeft % 60;
-            displayTime = `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`;
-        }
-        el.pomodoroTime.textContent = displayTime;
+    // ===== 睡眠 =====
+    renderSleepChart() {
+        const canvas = document.getElementById('sleepChart');
+        const ctx = canvas.getContext('2d');
+        const data = getData().stats.sleep.slice(-14).sort((a,b) => a.date.localeCompare(b.date));
+        this._setupCanvas(canvas);
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        if (data.length === 0) { this._drawEmpty(ctx, W, H); return; }
 
-        // 进度环
-        if (this.state === 'completed') {
-            el.pomodoroProgress.style.strokeDashoffset = 0;
-            el.pomodoroProgress.classList.add('overtime');
-        } else {
-            const progress = 1 - (this.timeLeft / this.totalTime);
-            const offset = this.circumference * (1 - progress);
-            el.pomodoroProgress.style.strokeDashoffset = offset;
-            el.pomodoroProgress.classList.remove('overtime');
+        const padL = 50, padR = 20, padT = 20, padB = 40;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+
+        // Y轴：时间 18:00 ~ 10:00 (next day) → 映射为 0~16h
+        const toY = (timeStr) => {
+            const [h, m] = timeStr.split(':').map(Number);
+            let val = h + m / 60;
+            if (val < 12) val += 24; // 凌晨算作24+
+            // 18:00=18 → 0, 10:00(34) → chartH
+            const normalized = (val - 18) / 16;
+            return padT + normalized * chartH;
+        };
+
+        // 画网格
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 0.5;
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        [18, 20, 22, 0, 2, 4, 6, 8, 10].forEach(h => {
+            const label = `${String(h).padStart(2,'0')}:00`;
+            let val = h;
+            if (val < 12) val += 24;
+            const y = padT + ((val - 18) / 16) * chartH;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+            ctx.fillText(label, padL - 4, y + 3);
+        });
+
+        const barW = Math.min(chartW / data.length * 0.6, 30);
+        const gap = chartW / data.length;
+
+        data.forEach((d, i) => {
+            const x = padL + i * gap + gap / 2 - barW / 2;
+            const yBed = toY(d.bedtime);
+            const yWake = toY(d.wakeup);
+            const barH = Math.max(yWake - yBed, 2);
+
+            // 渐变色柱
+            const grad = ctx.createLinearGradient(x, yBed, x, yWake);
+            grad.addColorStop(0, '#6366f1');
+            grad.addColorStop(1, '#a78bfa');
+            ctx.fillStyle = grad;
+            ctx.fillRect(x, yBed, barW, barH);
+
+            // X轴日期
+            ctx.fillStyle = '#64748b';
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(d.date.slice(5), x + barW / 2, H - padB + 14);
+        });
+    },
+
+    addSleep() {
+        const date = document.getElementById('sleepDate').value;
+        const bedtime = document.getElementById('sleepBedtime').value;
+        const wakeup = document.getElementById('sleepWakeup').value;
+        if (!date || !bedtime || !wakeup) { showToast('请填写完整'); return; }
+        const data = getData();
+        data.stats.sleep.push({ id: Date.now().toString(), date, bedtime, wakeup });
+        saveData(data);
+        this.renderSleepChart();
+        this.renderSleepList();
+        showToast('已添加睡眠记录');
+    },
+
+    renderSleepList() {
+        const data = getData().stats.sleep.sort((a,b) => b.date.localeCompare(a.date));
+        const list = document.getElementById('sleepList');
+        if (data.length === 0) { list.innerHTML = '<div style="color:var(--text-light);font-size:12px;padding:8px;">暂无数据</div>'; return; }
+        list.innerHTML = data.map(d => `
+            <div class="stats-data-item">
+                <div class="stats-data-info">${d.date} | 入睡 ${d.bedtime} → 起床 ${d.wakeup}</div>
+                <div class="stats-data-actions">
+                    <button class="stats-del-btn" onclick="Stats.delSleep('${d.id}')">删除</button>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    delSleep(id) {
+        const data = getData();
+        data.stats.sleep = data.stats.sleep.filter(d => d.id !== id);
+        saveData(data);
+        this.renderSleepChart();
+        this.renderSleepList();
+    },
+
+    // ===== 体重 =====
+    renderWeightChart() {
+        const canvas = document.getElementById('weightChart');
+        const ctx = canvas.getContext('2d');
+        const data = getData().stats.weight.slice(-30).sort((a,b) => a.date.localeCompare(b.date));
+        this._setupCanvas(canvas);
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        if (data.length === 0) { this._drawEmpty(ctx, W, H); return; }
+
+        const padL = 50, padR = 20, padT = 20, padB = 40;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+
+        const values = data.map(d => d.value);
+        const minV = Math.floor(Math.min(...values) - 1);
+        const maxV = Math.ceil(Math.max(...values) + 1);
+        const range = maxV - minV || 1;
+
+        // 网格
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 0.5;
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        for (let v = minV; v <= maxV; v += 1) {
+            const y = padT + chartH - ((v - minV) / range) * chartH;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+            ctx.fillText(v + 'kg', padL - 4, y + 3);
         }
 
-        // 模式标签
-        if (this.state === 'completed') {
-            el.pomodoroMode.textContent = '已完成！';
-        } else {
-            el.pomodoroMode.textContent = '专注';
-        }
+        // 折线
+        ctx.beginPath();
+        ctx.strokeStyle = '#4f46e5';
+        ctx.lineWidth = 2;
+        data.forEach((d, i) => {
+            const x = padL + (i / Math.max(data.length - 1, 1)) * chartW;
+            const y = padT + chartH - ((d.value - minV) / range) * chartH;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
 
-        // 按钮显示
-        if (this.state === 'completed') {
-            el.pomodoroStartBtn.style.display = 'none';
-            el.pomodoroFinishBtn.style.display = 'inline-block';
-        } else {
-            el.pomodoroFinishBtn.style.display = 'none';
-            el.pomodoroStartBtn.style.display = 'inline-block';
-            if (this.state === 'running') {
-                el.pomodoroStartBtn.textContent = '暂停';
-            } else if (this.state === 'paused') {
-                el.pomodoroStartBtn.textContent = '继续';
-            } else {
-                el.pomodoroStartBtn.textContent = '开始';
+        // 点
+        data.forEach((d, i) => {
+            const x = padL + (i / Math.max(data.length - 1, 1)) * chartW;
+            const y = padT + chartH - ((d.value - minV) / range) * chartH;
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fillStyle = '#4f46e5';
+            ctx.fill();
+
+            // X轴日期
+            if (data.length <= 15 || i % Math.ceil(data.length / 10) === 0) {
+                ctx.fillStyle = '#64748b';
+                ctx.font = '9px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(d.date.slice(5), x, H - padB + 14);
             }
+        });
+    },
+
+    addWeight() {
+        const date = document.getElementById('weightDate').value;
+        const value = parseFloat(document.getElementById('weightValue').value);
+        if (!date || isNaN(value)) { showToast('请填写完整'); return; }
+        const data = getData();
+        data.stats.weight.push({ id: Date.now().toString(), date, value });
+        saveData(data);
+        this.renderWeightChart();
+        this.renderWeightList();
+        showToast('已添加体重记录');
+    },
+
+    renderWeightList() {
+        const data = getData().stats.weight.sort((a,b) => b.date.localeCompare(a.date));
+        const list = document.getElementById('weightList');
+        if (data.length === 0) { list.innerHTML = '<div style="color:var(--text-light);font-size:12px;padding:8px;">暂无数据</div>'; return; }
+        list.innerHTML = data.map(d => `
+            <div class="stats-data-item">
+                <div class="stats-data-info">${d.date} | ${d.value} kg</div>
+                <div class="stats-data-actions">
+                    <button class="stats-del-btn" onclick="Stats.delWeight('${d.id}')">删除</button>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    delWeight(id) {
+        const data = getData();
+        data.stats.weight = data.stats.weight.filter(d => d.id !== id);
+        saveData(data);
+        this.renderWeightChart();
+        this.renderWeightList();
+    },
+
+    // ===== 支出 =====
+    renderExpenseChart() {
+        const canvas = document.getElementById('expenseChart');
+        const ctx = canvas.getContext('2d');
+        const allData = getData().stats.expense;
+        // 按月汇总
+        const monthMap = {};
+        allData.forEach(d => {
+            const m = d.date.slice(0, 7);
+            monthMap[m] = (monthMap[m] || 0) + d.amount;
+        });
+        const data = Object.entries(monthMap).sort((a,b) => a[0].localeCompare(b[0])).slice(-12);
+        this._setupCanvas(canvas);
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        if (data.length === 0) { this._drawEmpty(ctx, W, H); return; }
+
+        const padL = 60, padR = 20, padT = 20, padB = 40;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const maxV = Math.max(...data.map(d => d[1])) * 1.1 || 1;
+
+        // 网格
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 0.5;
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) {
+            const v = (maxV / 4) * i;
+            const y = padT + chartH - (v / maxV) * chartH;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+            ctx.fillText(Math.round(v) + '元', padL - 4, y + 3);
         }
+
+        const barW = Math.min(chartW / data.length * 0.6, 40);
+        const gap = chartW / data.length;
+        const colors = ['#4f46e5', '#6366f1', '#818cf8', '#a78bfa', '#7c3aed', '#8b5cf6'];
+
+        data.forEach((d, i) => {
+            const x = padL + i * gap + gap / 2 - barW / 2;
+            const barH = (d[1] / maxV) * chartH;
+            const y = padT + chartH - barH;
+            ctx.fillStyle = colors[i % colors.length];
+            ctx.fillRect(x, y, barW, barH);
+
+            // 金额标注
+            ctx.fillStyle = '#1e293b';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('¥' + Math.round(d[1]), x + barW / 2, y - 4);
+
+            // X轴月份
+            ctx.fillStyle = '#64748b';
+            ctx.font = '9px sans-serif';
+            ctx.fillText(d[0].slice(5), x + barW / 2, H - padB + 14);
+        });
+    },
+
+    addExpense() {
+        const date = document.getElementById('expenseDate').value;
+        const category = document.getElementById('expenseCategory').value.trim();
+        const amount = parseFloat(document.getElementById('expenseAmount').value);
+        if (!date || !category || isNaN(amount)) { showToast('请填写完整'); return; }
+        const data = getData();
+        data.stats.expense.push({ id: Date.now().toString(), date, category, amount });
+        saveData(data);
+        this.renderExpenseChart();
+        this.renderExpenseList();
+        showToast('已添加支出记录');
+    },
+
+    renderExpenseList() {
+        const data = getData().stats.expense.sort((a,b) => b.date.localeCompare(a.date));
+        const list = document.getElementById('expenseList');
+        if (data.length === 0) { list.innerHTML = '<div style="color:var(--text-light);font-size:12px;padding:8px;">暂无数据</div>'; return; }
+        list.innerHTML = data.map(d => `
+            <div class="stats-data-item">
+                <div class="stats-data-info">${d.date} | ${escapeHtml(d.category)} | ¥${d.amount}</div>
+                <div class="stats-data-actions">
+                    <button class="stats-del-btn" onclick="Stats.delExpense('${d.id}')">删除</button>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    delExpense(id) {
+        const data = getData();
+        data.stats.expense = data.stats.expense.filter(d => d.id !== id);
+        saveData(data);
+        this.renderExpenseChart();
+        this.renderExpenseList();
+    },
+
+    // ===== 运动 =====
+    renderExerciseChart() {
+        const canvas = document.getElementById('exerciseChart');
+        const ctx = canvas.getContext('2d');
+        const data = getData().stats.exercise.slice(-14).sort((a,b) => a.date.localeCompare(b.date));
+        this._setupCanvas(canvas);
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+        if (data.length === 0) { this._drawEmpty(ctx, W, H); return; }
+
+        const padL = 50, padR = 20, padT = 20, padB = 50;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const maxV = Math.max(...data.map(d => d.duration)) * 1.2 || 1;
+
+        // 网格
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 0.5;
+        ctx.fillStyle = '#64748b';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) {
+            const v = (maxV / 4) * i;
+            const y = padT + chartH - (v / maxV) * chartH;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+            ctx.fillText(Math.round(v) + '分', padL - 4, y + 3);
+        }
+
+        const barW = Math.min(chartW / data.length * 0.6, 30);
+        const gap = chartW / data.length;
+        const colors = ['#f59e0b', '#f97316', '#ef4444', '#10b981', '#06b6d4', '#8b5cf6'];
+
+        data.forEach((d, i) => {
+            const x = padL + i * gap + gap / 2 - barW / 2;
+            const barH = (d.duration / maxV) * chartH;
+            const y = padT + chartH - barH;
+            ctx.fillStyle = colors[i % colors.length];
+            ctx.fillRect(x, y, barW, barH);
+
+            // 运动名称标注
+            ctx.fillStyle = '#1e293b';
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(d.name, x + barW / 2, y - 4);
+
+            // X轴日期
+            ctx.fillStyle = '#64748b';
+            ctx.font = '9px sans-serif';
+            ctx.fillText(d.date.slice(5), x + barW / 2, H - padB + 14);
+        });
+    },
+
+    addExercise() {
+        const date = document.getElementById('exerciseDate').value;
+        const name = document.getElementById('exerciseName').value.trim();
+        const duration = parseInt(document.getElementById('exerciseDuration').value);
+        if (!date || !name || isNaN(duration)) { showToast('请填写完整'); return; }
+        const data = getData();
+        data.stats.exercise.push({ id: Date.now().toString(), date, name, duration });
+        saveData(data);
+        this.renderExerciseChart();
+        this.renderExerciseList();
+        showToast('已添加运动记录');
+    },
+
+    renderExerciseList() {
+        const data = getData().stats.exercise.sort((a,b) => b.date.localeCompare(a.date));
+        const list = document.getElementById('exerciseList');
+        if (data.length === 0) { list.innerHTML = '<div style="color:var(--text-light);font-size:12px;padding:8px;">暂无数据</div>'; return; }
+        list.innerHTML = data.map(d => `
+            <div class="stats-data-item">
+                <div class="stats-data-info">${d.date} | ${escapeHtml(d.name)} | ${d.duration} 分钟</div>
+                <div class="stats-data-actions">
+                    <button class="stats-del-btn" onclick="Stats.delExercise('${d.id}')">删除</button>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    delExercise(id) {
+        const data = getData();
+        data.stats.exercise = data.stats.exercise.filter(d => d.id !== id);
+        saveData(data);
+        this.renderExerciseChart();
+        this.renderExerciseList();
+    },
+
+    // ===== 图表工具 =====
+    _setupCanvas(canvas) {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * 2;
+        canvas.height = rect.height * 2;
+        canvas.getContext('2d').scale(2, 2);
+        // 重新设置为CSS尺寸
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+    },
+
+    _drawEmpty(ctx, W, H) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('暂无数据，添加后显示图表', W / 2, H / 2);
     }
 };
-
-function updatePomodoroStats() {
-    const data = getData();
-    const todayStr = formatDate(new Date());
-    const todayRecords = data.records.filter(r => r.date === todayStr && r.fromPomodoro);
-    let totalMins = 0;
-    todayRecords.forEach(r => { totalMins += calcDurationMinutes(r.startTime, r.endTime); });
-    el.todayFocusMin.textContent = totalMins;
-    el.todayPomodoroCount.textContent = todayRecords.length;
-}
-
-function playBeep() {
-    try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.value = 800;
-        osc.type = 'sine';
-        gain.gain.value = 0.3;
-        osc.start();
-        setTimeout(() => { osc.stop(); ctx.close(); }, 500);
-    } catch (e) {}
-}
-
-// ===== Toast =====
-function showToast(msg) {
-    el.toast.textContent = msg;
-    el.toast.classList.add('show');
-    setTimeout(() => el.toast.classList.remove('show'), 3000);
-}
-
-// ===== 工具 =====
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
 
 // ===== 数据导入导出 =====
 function exportData() {
     const data = getData();
     const exportObj = {
-        version: 1,
+        version: 2,
         exportDate: new Date().toISOString(),
         records: data.records,
         todos: data.todos,
-        feelings: data.feelings
+        feelings: data.feelings,
+        stats: data.stats
     };
     const blob = new Blob([JSON.stringify(exportObj, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1106,15 +1396,45 @@ function importData() {
         const reader = new FileReader();
         reader.onload = (ev) => {
             try {
-                const data = JSON.parse(ev.target.result);
-                const currentData = getData();
-                // 合并数据（导入的数据覆盖当前数据）
-                if (data.records) currentData.records = data.records;
-                if (data.todos) currentData.todos = data.todos;
-                if (data.feelings) currentData.feelings = data.feelings;
-                saveData(currentData);
+                const imported = JSON.parse(ev.target.result);
+                const current = getData();
+
+                // 合并 records：按 id 去重，新数据补充，同 id 的更新
+                if (imported.records) {
+                    const map = new Map();
+                    current.records.forEach(r => map.set(r.id, r));
+                    imported.records.forEach(r => map.set(r.id, r));
+                    current.records = Array.from(map.values());
+                }
+
+                // 合并 todos：按 id 去重
+                if (imported.todos) {
+                    const map = new Map();
+                    current.todos.forEach(t => map.set(t.id, t));
+                    imported.todos.forEach(t => map.set(t.id, t));
+                    current.todos = Array.from(map.values());
+                }
+
+                // 合并 feelings：按日期 key 合并
+                if (imported.feelings) {
+                    Object.assign(current.feelings, imported.feelings);
+                }
+
+                // 合并 stats：按 id 去重
+                if (imported.stats) {
+                    ['sleep', 'weight', 'expense', 'exercise'].forEach(key => {
+                        if (imported.stats[key]) {
+                            const map = new Map();
+                            (current.stats[key] || []).forEach(d => map.set(d.id, d));
+                            imported.stats[key].forEach(d => map.set(d.id, d));
+                            current.stats[key] = Array.from(map.values());
+                        }
+                    });
+                }
+
+                saveData(current);
                 render();
-                showToast('数据导入成功');
+                showToast('数据导入成功（已合并）');
             } catch (err) {
                 showToast('导入失败：文件格式错误');
             }
@@ -1124,33 +1444,38 @@ function importData() {
     input.click();
 }
 
+// ===== Toast =====
+function showToast(msg) {
+    el.toast.textContent = msg;
+    el.toast.classList.add('show');
+    setTimeout(() => el.toast.classList.remove('show'), 3000);
+}
+
+// ===== 工具 =====
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // ===== 事件绑定 =====
 function bindEvents() {
-    // 视图切换
     el.navBtns.forEach(btn => {
         btn.addEventListener('click', () => switchView(btn.dataset.view));
     });
-
-    // 日期导航
     el.prevBtn.addEventListener('click', () => navigateDate(-1));
     el.nextBtn.addEventListener('click', () => navigateDate(1));
     el.todayBtn.addEventListener('click', goToday);
-
-    // FAB
     el.fabAdd.addEventListener('click', () => openAddModal());
-
-    // 导入导出
     document.getElementById('exportDataBtn')?.addEventListener('click', exportData);
     document.getElementById('importDataBtn')?.addEventListener('click', importData);
 
-    // 日程弹窗
     el.closeModal.addEventListener('click', closeModalFn);
     el.cancelBtn.addEventListener('click', closeModalFn);
     el.recordModal.addEventListener('click', (e) => { if (e.target === el.recordModal) closeModalFn(); });
     el.recordForm.addEventListener('submit', handleSubmit);
     el.deleteBtn.addEventListener('click', handleDelete);
 
-    // 感悟弹窗
     el.closeFeelingModal.addEventListener('click', closeFeelingModalFn);
     el.cancelFeelingBtn.addEventListener('click', closeFeelingModalFn);
     el.feelingModal.addEventListener('click', (e) => { if (e.target === el.feelingModal) closeFeelingModalFn(); });
@@ -1168,25 +1493,23 @@ function bindEvents() {
         }
     });
 
-    // 待办
     el.addTodoBtn.addEventListener('click', addTodo);
     el.newTodoInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addTodo(); });
     el.todoList.addEventListener('click', (e) => {
         const target = e.target.closest('[data-action]');
         if (!target) return;
-        const action = target.dataset.action;
-        const id = target.dataset.id;
-        if (action === 'toggle') toggleTodo(id);
-        else if (action === 'delete') deleteTodo(id);
+        if (target.dataset.action === 'toggle') toggleTodo(target.dataset.id);
+        else if (target.dataset.action === 'delete') deleteTodo(target.dataset.id);
     });
 
-    // 番茄钟
-    el.pomodoroStartBtn.addEventListener('click', () => {
-        if (Pomodoro.state === 'running') Pomodoro.pause();
-        else Pomodoro.start();
+    // 自然语言输入
+    el.nlParseBtn.addEventListener('click', handleNLParse);
+
+    // 查看已完成
+    document.getElementById('toggleCompletedBtn')?.addEventListener('click', () => {
+        showCompletedTodos = !showCompletedTodos;
+        renderTodoList();
     });
-    el.pomodoroFinishBtn.addEventListener('click', () => Pomodoro.finish());
-    el.pomodoroResetBtn.addEventListener('click', () => Pomodoro.reset());
 
     // 键盘快捷键
     document.addEventListener('keydown', (e) => {
@@ -1205,7 +1528,6 @@ async function init() {
     await loadQuotes();
     setTodoDefaults();
     bindEvents();
-    Pomodoro.updateUI();
     render();
 }
 
