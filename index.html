@@ -90,19 +90,15 @@
             <!-- 统计视图 -->
             <div class="view stats-view" id="statsView">
                 <div class="stats-grid">
-                    <!-- 睡眠记录 -->
+                    <!-- 时间分布饼图 -->
                     <div class="stats-card">
-                        <h3>😴 睡眠记录</h3>
-                        <canvas id="sleepChart" class="stats-canvas"></canvas>
-                        <div class="stats-form">
-                            <div class="stats-form-row">
-                                <input type="date" id="sleepDate" class="stats-input">
-                                <input type="time" id="sleepBedtime" class="stats-input" placeholder="入睡">
-                                <input type="time" id="sleepWakeup" class="stats-input" placeholder="起床">
-                                <button class="btn btn-primary btn-sm" onclick="Stats.addSleep()">添加</button>
-                            </div>
+                        <h3>📊 时间分布</h3>
+                        <div class="stats-date-selector">
+                            <label>选择月份：</label>
+                            <input type="month" id="pieMonth" class="stats-input">
                         </div>
-                        <div id="sleepList" class="stats-data-list"></div>
+                        <canvas id="pieChart" class="stats-canvas"></canvas>
+                        <div id="pieLegend" class="stats-legend"></div>
                     </div>
                     <!-- 体重变化 -->
                     <div class="stats-card">
@@ -117,33 +113,34 @@
                         </div>
                         <div id="weightList" class="stats-data-list"></div>
                     </div>
-                    <!-- 支出详情 -->
+                    <!-- 词云图 -->
                     <div class="stats-card">
-                        <h3>💰 支出详情</h3>
-                        <canvas id="expenseChart" class="stats-canvas"></canvas>
-                        <div class="stats-form">
-                            <div class="stats-form-row">
-                                <input type="date" id="expenseDate" class="stats-input">
-                                <input type="text" id="expenseCategory" class="stats-input" placeholder="类别">
-                                <input type="number" id="expenseAmount" class="stats-input" placeholder="金额" step="0.01">
-                                <button class="btn btn-primary btn-sm" onclick="Stats.addExpense()">添加</button>
-                            </div>
+                        <h3>☁️ 日程词云</h3>
+                        <div class="stats-date-selector">
+                            <label>选择月份：</label>
+                            <input type="month" id="wordCloudMonth" class="stats-input">
                         </div>
-                        <div id="expenseList" class="stats-data-list"></div>
+                        <div id="wordCloud" class="word-cloud-container"></div>
                     </div>
-                    <!-- 运动记录 -->
+                    <!-- 运动日历 -->
                     <div class="stats-card">
-                        <h3>🏃 运动记录</h3>
-                        <canvas id="exerciseChart" class="stats-canvas"></canvas>
-                        <div class="stats-form">
-                            <div class="stats-form-row">
-                                <input type="date" id="exerciseDate" class="stats-input">
-                                <input type="text" id="exerciseName" class="stats-input" placeholder="运动名称">
-                                <input type="number" id="exerciseDuration" class="stats-input" placeholder="分钟" step="1">
-                                <button class="btn btn-primary btn-sm" onclick="Stats.addExercise()">添加</button>
-                            </div>
+                        <h3>🏃 运动日历</h3>
+                        <div class="stats-date-selector">
+                            <label>选择月份：</label>
+                            <input type="month" id="exerciseMonth" class="stats-input">
                         </div>
-                        <div id="exerciseList" class="stats-data-list"></div>
+                        <div id="exerciseCalendar" class="exercise-calendar"></div>
+                        <div class="exercise-emoji-picker">
+                            <span>常用运动：</span>
+                            <span class="emoji-btn" data-emoji="⚽">⚽</span>
+                            <span class="emoji-btn" data-emoji="🏸">🏸</span>
+                            <span class="emoji-btn" data-emoji="🏃">🏃</span>
+                            <span class="emoji-btn" data-emoji="🚴">🚴</span>
+                            <span class="emoji-btn" data-emoji="🏊">🏊</span>
+                            <span class="emoji-btn" data-emoji="🏋️">🏋️</span>
+                            <span class="emoji-btn" data-emoji="🧘">🧘</span>
+                            <span class="emoji-btn" data-emoji="🎾">🎾</span>
+                        </div>
                     </div>
                 </div>
             </div>

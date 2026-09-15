@@ -952,31 +952,110 @@ function setTodoDefaults() {
 
 // ===== 统计页面 =====
 const Stats = {
+    selectedEmoji: null,
+
     render() {
-        this.setDefaultDates();
-        this.renderSleepChart();
+        this.setDefaultMonths();
+        this.renderPieChart();
         this.renderWeightChart();
-        this.renderExpenseChart();
-        this.renderExerciseChart();
-        this.renderSleepList();
+        this.renderWordCloud();
+        this.renderExerciseCalendar();
         this.renderWeightList();
-        this.renderExpenseList();
-        this.renderExerciseList();
+        this.bindEmojiPicker();
     },
 
-    setDefaultDates() {
-        const today = formatDate(new Date());
-        ['sleepDate','weightDate','expenseDate','exerciseDate'].forEach(id => {
+    setDefaultMonths() {
+        const now = new Date();
+        const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        ['pieMonth', 'wordCloudMonth', 'exerciseMonth'].forEach(id => {
             const el = document.getElementById(id);
-            if (el && !el.value) el.value = today;
+            if (el && !el.value) {
+                el.value = monthStr;
+                el.addEventListener('change', () => this.render());
+            }
         });
+        const weightDate = document.getElementById('weightDate');
+        if (weightDate && !weightDate.value) weightDate.value = formatDate(now);
     },
 
-    // ===== 睡眠 =====
-    renderSleepChart() {
-        const canvas = document.getElementById('sleepChart');
+    // ===== 时间分布饼图 =====
+    renderPieChart() {
+        const canvas = document.getElementById('pieChart');
         const ctx = canvas.getContext('2d');
-        const data = getData().stats.sleep.slice(-14).sort((a,b) => a.date.localeCompare(b.date));
+        const month = document.getElementById('pieMonth').value;
+        if (!month) return;
+
+        const data = getData();
+        const records = data.records.filter(r => r.date && r.date.startsWith(month));
+
+        // 按类型统计时长
+        const typeMinutes = {};
+        records.forEach(r => {
+            const mins = calcDurationMinutes(r.startTime, r.endTime);
+            typeMinutes[r.type] = (typeMinutes[r.type] || 0) + mins;
+        });
+
+        this._setupCanvas(canvas);
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+
+        const total = Object.values(typeMinutes).reduce((a, b) => a + b, 0);
+        if (total === 0) {
+            this._drawEmpty(ctx, W, H);
+            document.getElementById('pieLegend').innerHTML = '';
+            return;
+        }
+
+        // 绘制饼图
+        const centerX = W / 2;
+        const centerY = H / 2;
+        const radius = Math.min(W, H) / 2 - 40;
+        let startAngle = -Math.PI / 2;
+
+        const colors = {
+            work: '#3b82f6',
+            life: '#10b981',
+            study: '#8b5cf6',
+            sport: '#f59e0b',
+            food: '#ef4444',
+            play: '#06b6d4',
+            focus: '#f97316',
+            other: '#6b7280'
+        };
+
+        const entries = Object.entries(typeMinutes).sort((a, b) => b[1] - a[1]);
+        entries.forEach(([type, mins]) => {
+            const sliceAngle = (mins / total) * 2 * Math.PI;
+            const endAngle = startAngle + sliceAngle;
+
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+            ctx.closePath();
+            ctx.fillStyle = colors[type] || colors.other;
+            ctx.fill();
+
+            startAngle = endAngle;
+        });
+
+        // 绘制图例
+        const legend = document.getElementById('pieLegend');
+        legend.innerHTML = entries.map(([type, mins]) => {
+            const config = TYPE_CONFIG[type] || TYPE_CONFIG.other;
+            const percent = ((mins / total) * 100).toFixed(1);
+            const hours = (mins / 60).toFixed(1);
+            return `<div class="legend-item">
+                <div class="legend-color" style="background:${colors[type] || colors.other}"></div>
+                <span>${config.icon} ${config.label}: ${hours}h (${percent}%)</span>
+            </div>`;
+        }).join('');
+    },
+
+    // ===== 体重 =====
+    renderWeightChart() {
+        const canvas = document.getElementById('weightChart');
+        const ctx = canvas.getContext('2d');
+        const data = getData().stats.weight.slice(-30).sort((a,b) => a.date.localeCompare(b.date));
         this._setupCanvas(canvas);
         const W = canvas.width, H = canvas.height;
         ctx.clearRect(0, 0, W, H);
@@ -986,89 +1065,215 @@ const Stats = {
         const chartW = W - padL - padR;
         const chartH = H - padT - padB;
 
-        // Y轴：时间 18:00 ~ 10:00 (next day) → 映射为 0~16h
-        const toY = (timeStr) => {
-            const [h, m] = timeStr.split(':').map(Number);
-            let val = h + m / 60;
-            if (val < 12) val += 24; // 凌晨算作24+
-            // 18:00=18 → 0, 10:00(34) → chartH
-            const normalized = (val - 18) / 16;
-            return padT + normalized * chartH;
-        };
+        const values = data.map(d => d.value);
+        const minV = Math.floor(Math.min(...values) - 1);
+        const maxV = Math.ceil(Math.max(...values) + 1);
+        const range = maxV - minV || 1;
 
-        // 画网格
         ctx.strokeStyle = '#e2e8f0';
         ctx.lineWidth = 0.5;
         ctx.fillStyle = '#64748b';
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'right';
-        [18, 20, 22, 0, 2, 4, 6, 8, 10].forEach(h => {
-            const label = `${String(h).padStart(2,'0')}:00`;
-            let val = h;
-            if (val < 12) val += 24;
-            const y = padT + ((val - 18) / 16) * chartH;
+        for (let v = minV; v <= maxV; v += 1) {
+            const y = padT + chartH - ((v - minV) / range) * chartH;
             ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
-            ctx.fillText(label, padL - 4, y + 3);
-        });
+            ctx.fillText(v + 'kg', padL - 4, y + 3);
+        }
 
-        const barW = Math.min(chartW / data.length * 0.6, 30);
-        const gap = chartW / data.length;
+        ctx.beginPath();
+        ctx.strokeStyle = '#4f46e5';
+        ctx.lineWidth = 2;
+        data.forEach((d, i) => {
+            const x = padL + (i / Math.max(data.length - 1, 1)) * chartW;
+            const y = padT + chartH - ((d.value - minV) / range) * chartH;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
 
         data.forEach((d, i) => {
-            const x = padL + i * gap + gap / 2 - barW / 2;
-            const yBed = toY(d.bedtime);
-            const yWake = toY(d.wakeup);
-            const barH = Math.max(yWake - yBed, 2);
+            const x = padL + (i / Math.max(data.length - 1, 1)) * chartW;
+            const y = padT + chartH - ((d.value - minV) / range) * chartH;
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fillStyle = '#4f46e5';
+            ctx.fill();
 
-            // 渐变色柱
-            const grad = ctx.createLinearGradient(x, yBed, x, yWake);
-            grad.addColorStop(0, '#6366f1');
-            grad.addColorStop(1, '#a78bfa');
-            ctx.fillStyle = grad;
-            ctx.fillRect(x, yBed, barW, barH);
-
-            // X轴日期
-            ctx.fillStyle = '#64748b';
-            ctx.font = '9px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(d.date.slice(5), x + barW / 2, H - padB + 14);
+            if (data.length <= 15 || i % Math.ceil(data.length / 10) === 0) {
+                ctx.fillStyle = '#64748b';
+                ctx.font = '9px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(d.date.slice(5), x, H - padB + 14);
+            }
         });
     },
 
-    addSleep() {
-        const date = document.getElementById('sleepDate').value;
-        const bedtime = document.getElementById('sleepBedtime').value;
-        const wakeup = document.getElementById('sleepWakeup').value;
-        if (!date || !bedtime || !wakeup) { showToast('请填写完整'); return; }
+    addWeight() {
+        const date = document.getElementById('weightDate').value;
+        const value = parseFloat(document.getElementById('weightValue').value);
+        if (!date || isNaN(value)) { showToast('请填写完整'); return; }
         const data = getData();
-        data.stats.sleep.push({ id: Date.now().toString(), date, bedtime, wakeup });
+        data.stats.weight.push({ id: Date.now().toString(), date, value });
         saveData(data);
-        this.renderSleepChart();
-        this.renderSleepList();
-        showToast('已添加睡眠记录');
+        this.renderWeightChart();
+        this.renderWeightList();
+        showToast('已添加体重记录');
     },
 
-    renderSleepList() {
-        const data = getData().stats.sleep.sort((a,b) => b.date.localeCompare(a.date));
-        const list = document.getElementById('sleepList');
+    renderWeightList() {
+        const data = getData().stats.weight.sort((a,b) => b.date.localeCompare(a.date));
+        const list = document.getElementById('weightList');
         if (data.length === 0) { list.innerHTML = '<div style="color:var(--text-light);font-size:12px;padding:8px;">暂无数据</div>'; return; }
         list.innerHTML = data.map(d => `
             <div class="stats-data-item">
-                <div class="stats-data-info">${d.date} | 入睡 ${d.bedtime} → 起床 ${d.wakeup}</div>
+                <div class="stats-data-info">${d.date} | ${d.value} kg</div>
                 <div class="stats-data-actions">
-                    <button class="stats-del-btn" onclick="Stats.delSleep('${d.id}')">删除</button>
+                    <button class="stats-del-btn" onclick="Stats.delWeight('${d.id}')">删除</button>
                 </div>
             </div>
         `).join('');
     },
 
-    delSleep(id) {
+    delWeight(id) {
         const data = getData();
-        data.stats.sleep = data.stats.sleep.filter(d => d.id !== id);
+        data.stats.weight = data.stats.weight.filter(d => d.id !== id);
         saveData(data);
-        this.renderSleepChart();
-        this.renderSleepList();
+        this.renderWeightChart();
+        this.renderWeightList();
     },
+
+    // ===== 词云 =====
+    renderWordCloud() {
+        const month = document.getElementById('wordCloudMonth').value;
+        if (!month) return;
+
+        const data = getData();
+        const records = data.records.filter(r => r.date && r.date.startsWith(month));
+
+        // 提取文本
+        const wordCount = {};
+        records.forEach(r => {
+            const texts = [r.title, r.note].filter(t => t && t.length > 1);
+            texts.forEach(text => {
+                // 简单分词：按空格、标点分割
+                const words = text.split(/[\s,，。！？、；：""''（）\(\)\[\]【】]+/).filter(w => w.length >= 2);
+                words.forEach(w => {
+                    wordCount[w] = (wordCount[w] || 0) + 1;
+                });
+            });
+        });
+
+        const container = document.getElementById('wordCloud');
+        const entries = Object.entries(wordCount).sort((a, b) => b[1] - a[1]).slice(0, 50);
+
+        if (entries.length === 0) {
+            container.innerHTML = '<div style="color:var(--text-light);font-size:14px;">本月暂无日程记录</div>';
+            return;
+        }
+
+        const maxCount = entries[0][1];
+        const colors = ['#4f46e5', '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#10b981', '#06b6d4'];
+
+        container.innerHTML = entries.map(([word, count], i) => {
+            const size = 12 + (count / maxCount) * 20;
+            const color = colors[i % colors.length];
+            return `<span class="word-cloud-item" style="font-size:${size}px;color:${color};font-weight:${count > maxCount / 2 ? '600' : '400'}">${escapeHtml(word)}</span>`;
+        }).join('');
+    },
+
+    // ===== 运动日历 =====
+    renderExerciseCalendar() {
+        const month = document.getElementById('exerciseMonth').value;
+        if (!month) return;
+
+        const [year, monthNum] = month.split('-').map(Number);
+        const data = getData();
+        const calendar = data.stats.exerciseCalendar || {};
+
+        const container = document.getElementById('exerciseCalendar');
+        const firstDay = new Date(year, monthNum - 1, 1);
+        const lastDay = new Date(year, monthNum, 0);
+        const startDow = firstDay.getDay();
+
+        // 星期标题
+        let html = '<div class="exercise-calendar-header">';
+        ['日', '一', '二', '三', '四', '五', '六'].forEach(d => {
+            html += `<div>${d}</div>`;
+        });
+        html += '</div>';
+
+        // 日历网格
+        html += '<div class="exercise-calendar">';
+
+        // 前置空白
+        for (let i = 0; i < startDow; i++) {
+            html += '<div class="exercise-day other-month"></div>';
+        }
+
+        // 日期
+        const today = formatDate(new Date());
+        for (let d = 1; d <= lastDay.getDate(); d++) {
+            const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const emoji = calendar[dateStr];
+            const isToday = dateStr === today;
+            const classes = ['exercise-day'];
+            if (isToday) classes.push('today');
+            if (emoji) classes.push('has-emoji');
+
+            html += `<div class="${classes.join(' ')}" data-date="${dateStr}">
+                <span class="day-number">${d}</span>
+                ${emoji ? `<span class="day-emoji">${emoji}</span>` : ''}
+            </div>`;
+        }
+
+        html += '</div>';
+        container.innerHTML = html;
+
+        // 绑定点击事件
+        container.querySelectorAll('.exercise-day:not(.other-month)').forEach(day => {
+            day.addEventListener('click', () => {
+                if (!this.selectedEmoji) {
+                    showToast('请先选择运动类型');
+                    return;
+                }
+                const dateStr = day.dataset.date;
+                const data = getData();
+                if (!data.stats.exerciseCalendar) data.stats.exerciseCalendar = {};
+                data.stats.exerciseCalendar[dateStr] = this.selectedEmoji;
+                saveData(data);
+                this.renderExerciseCalendar();
+                showToast(`已标记 ${dateStr}`);
+            });
+        });
+    },
+
+    bindEmojiPicker() {
+        document.querySelectorAll('.emoji-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.emoji-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                this.selectedEmoji = btn.dataset.emoji;
+            });
+        });
+    },
+
+    // ===== 图表工具 =====
+    _setupCanvas(canvas) {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * 2;
+        canvas.height = rect.height * 2;
+        canvas.getContext('2d').scale(2, 2);
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+    },
+
+    _drawEmpty(ctx, W, H) {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('暂无数据', W / 2, H / 2);
+    }
+};
 
     // ===== 体重 =====
     renderWeightChart() {
@@ -1165,194 +1370,12 @@ const Stats = {
         this.renderWeightList();
     },
 
-    // ===== 支出 =====
-    renderExpenseChart() {
-        const canvas = document.getElementById('expenseChart');
-        const ctx = canvas.getContext('2d');
-        const allData = getData().stats.expense;
-        // 按月汇总
-        const monthMap = {};
-        allData.forEach(d => {
-            const m = d.date.slice(0, 7);
-            monthMap[m] = (monthMap[m] || 0) + d.amount;
-        });
-        const data = Object.entries(monthMap).sort((a,b) => a[0].localeCompare(b[0])).slice(-12);
-        this._setupCanvas(canvas);
-        const W = canvas.width, H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-        if (data.length === 0) { this._drawEmpty(ctx, W, H); return; }
-
-        const padL = 60, padR = 20, padT = 20, padB = 40;
-        const chartW = W - padL - padR;
-        const chartH = H - padT - padB;
-        const maxV = Math.max(...data.map(d => d[1])) * 1.1 || 1;
-
-        // 网格
-        ctx.strokeStyle = '#e2e8f0';
-        ctx.lineWidth = 0.5;
-        ctx.fillStyle = '#64748b';
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'right';
-        for (let i = 0; i <= 4; i++) {
-            const v = (maxV / 4) * i;
-            const y = padT + chartH - (v / maxV) * chartH;
-            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
-            ctx.fillText(Math.round(v) + '元', padL - 4, y + 3);
-        }
-
-        const barW = Math.min(chartW / data.length * 0.6, 40);
-        const gap = chartW / data.length;
-        const colors = ['#4f46e5', '#6366f1', '#818cf8', '#a78bfa', '#7c3aed', '#8b5cf6'];
-
-        data.forEach((d, i) => {
-            const x = padL + i * gap + gap / 2 - barW / 2;
-            const barH = (d[1] / maxV) * chartH;
-            const y = padT + chartH - barH;
-            ctx.fillStyle = colors[i % colors.length];
-            ctx.fillRect(x, y, barW, barH);
-
-            // 金额标注
-            ctx.fillStyle = '#1e293b';
-            ctx.font = '10px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('¥' + Math.round(d[1]), x + barW / 2, y - 4);
-
-            // X轴月份
-            ctx.fillStyle = '#64748b';
-            ctx.font = '9px sans-serif';
-            ctx.fillText(d[0].slice(5), x + barW / 2, H - padB + 14);
-        });
-    },
-
-    addExpense() {
-        const date = document.getElementById('expenseDate').value;
-        const category = document.getElementById('expenseCategory').value.trim();
-        const amount = parseFloat(document.getElementById('expenseAmount').value);
-        if (!date || !category || isNaN(amount)) { showToast('请填写完整'); return; }
-        const data = getData();
-        data.stats.expense.push({ id: Date.now().toString(), date, category, amount });
-        saveData(data);
-        this.renderExpenseChart();
-        this.renderExpenseList();
-        showToast('已添加支出记录');
-    },
-
-    renderExpenseList() {
-        const data = getData().stats.expense.sort((a,b) => b.date.localeCompare(a.date));
-        const list = document.getElementById('expenseList');
-        if (data.length === 0) { list.innerHTML = '<div style="color:var(--text-light);font-size:12px;padding:8px;">暂无数据</div>'; return; }
-        list.innerHTML = data.map(d => `
-            <div class="stats-data-item">
-                <div class="stats-data-info">${d.date} | ${escapeHtml(d.category)} | ¥${d.amount}</div>
-                <div class="stats-data-actions">
-                    <button class="stats-del-btn" onclick="Stats.delExpense('${d.id}')">删除</button>
-                </div>
-            </div>
-        `).join('');
-    },
-
-    delExpense(id) {
-        const data = getData();
-        data.stats.expense = data.stats.expense.filter(d => d.id !== id);
-        saveData(data);
-        this.renderExpenseChart();
-        this.renderExpenseList();
-    },
-
-    // ===== 运动 =====
-    renderExerciseChart() {
-        const canvas = document.getElementById('exerciseChart');
-        const ctx = canvas.getContext('2d');
-        const data = getData().stats.exercise.slice(-14).sort((a,b) => a.date.localeCompare(b.date));
-        this._setupCanvas(canvas);
-        const W = canvas.width, H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-        if (data.length === 0) { this._drawEmpty(ctx, W, H); return; }
-
-        const padL = 50, padR = 20, padT = 20, padB = 50;
-        const chartW = W - padL - padR;
-        const chartH = H - padT - padB;
-        const maxV = Math.max(...data.map(d => d.duration)) * 1.2 || 1;
-
-        // 网格
-        ctx.strokeStyle = '#e2e8f0';
-        ctx.lineWidth = 0.5;
-        ctx.fillStyle = '#64748b';
-        ctx.font = '10px sans-serif';
-        ctx.textAlign = 'right';
-        for (let i = 0; i <= 4; i++) {
-            const v = (maxV / 4) * i;
-            const y = padT + chartH - (v / maxV) * chartH;
-            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
-            ctx.fillText(Math.round(v) + '分', padL - 4, y + 3);
-        }
-
-        const barW = Math.min(chartW / data.length * 0.6, 30);
-        const gap = chartW / data.length;
-        const colors = ['#f59e0b', '#f97316', '#ef4444', '#10b981', '#06b6d4', '#8b5cf6'];
-
-        data.forEach((d, i) => {
-            const x = padL + i * gap + gap / 2 - barW / 2;
-            const barH = (d.duration / maxV) * chartH;
-            const y = padT + chartH - barH;
-            ctx.fillStyle = colors[i % colors.length];
-            ctx.fillRect(x, y, barW, barH);
-
-            // 运动名称标注
-            ctx.fillStyle = '#1e293b';
-            ctx.font = '9px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(d.name, x + barW / 2, y - 4);
-
-            // X轴日期
-            ctx.fillStyle = '#64748b';
-            ctx.font = '9px sans-serif';
-            ctx.fillText(d.date.slice(5), x + barW / 2, H - padB + 14);
-        });
-    },
-
-    addExercise() {
-        const date = document.getElementById('exerciseDate').value;
-        const name = document.getElementById('exerciseName').value.trim();
-        const duration = parseInt(document.getElementById('exerciseDuration').value);
-        if (!date || !name || isNaN(duration)) { showToast('请填写完整'); return; }
-        const data = getData();
-        data.stats.exercise.push({ id: Date.now().toString(), date, name, duration });
-        saveData(data);
-        this.renderExerciseChart();
-        this.renderExerciseList();
-        showToast('已添加运动记录');
-    },
-
-    renderExerciseList() {
-        const data = getData().stats.exercise.sort((a,b) => b.date.localeCompare(a.date));
-        const list = document.getElementById('exerciseList');
-        if (data.length === 0) { list.innerHTML = '<div style="color:var(--text-light);font-size:12px;padding:8px;">暂无数据</div>'; return; }
-        list.innerHTML = data.map(d => `
-            <div class="stats-data-item">
-                <div class="stats-data-info">${d.date} | ${escapeHtml(d.name)} | ${d.duration} 分钟</div>
-                <div class="stats-data-actions">
-                    <button class="stats-del-btn" onclick="Stats.delExercise('${d.id}')">删除</button>
-                </div>
-            </div>
-        `).join('');
-    },
-
-    delExercise(id) {
-        const data = getData();
-        data.stats.exercise = data.stats.exercise.filter(d => d.id !== id);
-        saveData(data);
-        this.renderExerciseChart();
-        this.renderExerciseList();
-    },
-
     // ===== 图表工具 =====
     _setupCanvas(canvas) {
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width * 2;
         canvas.height = rect.height * 2;
         canvas.getContext('2d').scale(2, 2);
-        // 重新设置为CSS尺寸
         canvas.width = rect.width;
         canvas.height = rect.height;
     },
@@ -1361,7 +1384,7 @@ const Stats = {
         ctx.fillStyle = '#94a3b8';
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('暂无数据，添加后显示图表', W / 2, H / 2);
+        ctx.fillText('暂无数据', W / 2, H / 2);
     }
 };
 

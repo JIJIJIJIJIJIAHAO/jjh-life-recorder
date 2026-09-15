@@ -970,6 +970,157 @@ body {
 
 .toast.show { transform: translateX(0); }
 
+/* ===== Stats New Styles ===== */
+.stats-date-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+
+.stats-date-selector label {
+    color: var(--text-light);
+}
+
+.stats-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 12px;
+    font-size: 13px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.legend-color {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+}
+
+/* Word Cloud */
+.word-cloud-container {
+    width: 100%;
+    height: 250px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px;
+    overflow: hidden;
+}
+
+.word-cloud-item {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: transform 0.2s;
+    cursor: default;
+}
+
+.word-cloud-item:hover {
+    transform: scale(1.1);
+}
+
+/* Exercise Calendar */
+.exercise-calendar {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.exercise-calendar-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.exercise-calendar-header div {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-light);
+    font-weight: 500;
+}
+
+.exercise-day {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+}
+
+.exercise-day:hover {
+    background: var(--bg);
+    border-color: var(--primary);
+}
+
+.exercise-day.other-month {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.exercise-day.today {
+    border-color: var(--primary);
+    border-width: 2px;
+}
+
+.exercise-day.has-emoji {
+    background: var(--primary-light);
+    color: white;
+}
+
+.exercise-day .day-number {
+    font-size: 11px;
+    line-height: 1;
+}
+
+.exercise-day .day-emoji {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.exercise-emoji-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px;
+    background: var(--bg);
+    border-radius: var(--radius);
+    font-size: 13px;
+}
+
+.emoji-btn {
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.emoji-btn:hover {
+    background: var(--card-bg);
+}
+
+.emoji-btn.selected {
+    background: var(--primary-light);
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 768px) {
     .header { flex-direction: column; gap: 12px; }
