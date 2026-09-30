@@ -613,23 +613,21 @@ body {
 }
 
 .day-three-col-wrapper {
-    overflow-x: auto;
+    overflow-x: hidden;
     overflow-y: auto;
     max-height: calc(100vh - 200px);
     scroll-behavior: smooth;
-    scroll-snap-type: x mandatory;
 }
 
 .day-three-col {
     display: flex;
-    width: 300%;
+    width: 100%;
     min-height: 1440px;
 }
 
 .day-column {
     flex: 1;
     position: relative;
-    scroll-snap-align: center;
 }
 
 .day-column.center {
@@ -1603,5 +1601,23 @@ body {
     .current-date {
         min-width: auto;
         font-size: 1rem;
+    }
+
+    /* 日视图：手机端中间今天为主，左右两天漏出边缘 */
+    .day-view .glass-card {
+        margin-left: -20px;
+        margin-right: -20px;
+        border-radius: 0;
+    }
+
+    .day-three-col {
+        --peek: clamp(20px, 8vw, 40px);
+        width: calc(300% - 6 * var(--peek));
+        transform: translateX(calc(-33.3333% + var(--peek)));
+    }
+
+    .day-column {
+        flex: 0 0 33.3333%;
+        min-width: 0;
     }
 }

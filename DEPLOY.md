@@ -16,7 +16,7 @@
 1. 访问 https://github.com/new
 2. 填写信息：
    - **Repository name**: `life-recorder`（或其他名称）
-   - **Description**: `生活记录网站`（可选）
+   - **Description**: `JJHの日程本网站`（可选）
    - **Public** ✅（必须选择 Public）
    - **不要勾选** "Add a README file"（我们本地已有）
    - **不要勾选** "Add .gitignore"
@@ -53,7 +53,7 @@ git init
 git add .
 
 # 提交更改
-git commit -m "Initial commit: 生活记录网站"
+git commit -m "Initial commit: JJHの日程本网站"
 
 # 重命名分支为 main
 git branch -M main
@@ -217,7 +217,7 @@ https://你的用户名.github.io/life-recorder/
 1. 用 Safari 访问网站
 2. 点击底部的 **分享按钮**（方框+向上箭头）
 3. 向下滚动，点击 **"添加到主屏幕"**
-4. 输入名称（如"生活记录"）
+4. 输入名称（如"JJHの日程本"）
 5. 点击 **"添加"**
 
 现在桌面会有应用图标，点击即可全屏使用。
@@ -296,7 +296,7 @@ GitHub Pages 会自动重新部署。
 
 ## 🎉 完成！
 
-恭喜你成功部署了生活记录网站！
+恭喜你成功部署了 JJHの日程本网站！
 
 现在你可以在任何设备上访问：
 ```

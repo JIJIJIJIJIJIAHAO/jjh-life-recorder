@@ -659,10 +659,10 @@ function renderDayView() {
 
     container.innerHTML = html;
 
-    // 滚动到中间列的顶部
+    // 滚动到时间轴顶部
     const wrapper = container.parentElement;
     if (wrapper && !wrapper._scrolled) {
-        wrapper.scrollLeft = wrapper.scrollWidth / 3;
+        wrapper.scrollTop = 0;
         wrapper._scrolled = true;
     }
 
