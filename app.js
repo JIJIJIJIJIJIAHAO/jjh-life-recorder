@@ -573,9 +573,9 @@ function handleNLParse() {
 function renderDayView() {
     const dateStr = formatDate(currentDate);
     const data = getData();
-    const records = data.records.filter(r => r.date === dateStr);
     const dayTodos = getDayTodos(dateStr);
 
+    // 待办栏
     if (dayTodos.length > 0) {
         el.dayTodoBar.style.display = 'block';
         el.dayTodoBar.innerHTML = '<h4>📋 当日待办</h4>' + dayTodos.map(t => `
@@ -590,49 +590,84 @@ function renderDayView() {
         el.dayTodoBar.style.display = 'none';
     }
 
-    const displayOrder = [];
-    for (let i = 6; i <= 23; i++) displayOrder.push(i);
-    for (let i = 0; i <= 5; i++) displayOrder.push(i);
+    // 三列日期
+    const yesterday = new Date(currentDate);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const tomorrow = new Date(currentDate);
+    tomorrow.setDate(tomorrow.getDate() + 1);
 
+    const dates = [
+        { date: yesterday, label: '昨天', isCenter: false },
+        { date: currentDate, label: '今天', isCenter: true },
+        { date: tomorrow, label: '明天', isCenter: false }
+    ];
+
+    const container = document.getElementById('dayThreeCol');
     let html = '';
-    displayOrder.forEach((realHour, idx) => {
-        const yPos = idx * 60;
-        const hourStr = String(realHour).padStart(2, '0') + ':00';
-        html += `<div class="day-hour-label" style="top:${yPos}px;">${hourStr}</div>`;
-        html += `<div class="day-hour-slot" style="top:${yPos}px;" data-date="${dateStr}" data-hour="${realHour}"></div>`;
+
+    dates.forEach(({ date, label, isCenter }) => {
+        const ds = formatDate(date);
+        const records = data.records.filter(r => r.date === ds);
+        const colClass = isCenter ? 'day-column center' : 'day-column side';
+
+        html += `<div class="${colClass}" data-date="${ds}">`;
+        html += `<div class="day-column-header">${label} · ${formatDateDisplay(date).split(' ')[0].slice(5)}</div>`;
+        html += `<div class="day-column-timeline">`;
+
+        // 时间轴（6:00-23:00 + 0:00-5:00）
+        const displayOrder = [];
+        for (let i = 6; i <= 23; i++) displayOrder.push(i);
+        for (let i = 0; i <= 5; i++) displayOrder.push(i);
+
+        displayOrder.forEach((realHour, idx) => {
+            const yPos = idx * 60;
+            const hourStr = String(realHour).padStart(2, '0') + ':00';
+            html += `<div class="day-hour-label" style="top:${yPos}px;">${hourStr}</div>`;
+            if (isCenter) {
+                html += `<div class="day-hour-slot" style="top:${yPos}px;" data-date="${ds}" data-hour="${realHour}"></div>`;
+            } else {
+                html += `<div class="day-hour-slot" style="top:${yPos}px;"></div>`;
+            }
+        });
+
+        // 分隔线
+        const sepY = 18 * 60;
+        html += `<div class="day-separator" style="top:${sepY}px;"></div>`;
+
+        // 事件块
+        const layoutResult = layoutEvents(records);
+        layoutResult.forEach(item => {
+            const record = item.record;
+            const config = TYPE_CONFIG[record.type] || TYPE_CONFIG.other;
+            let startY = visualY(record.startTime);
+            let endY = visualY(record.endTime);
+            if (endY <= startY) endY = 1440;
+            const top = startY;
+            const height = Math.max(endY - startY, 20);
+            const leftPct = item.col * item.widthPct;
+            html += `<div class="day-event-block ${record.type}"
+                style="top:${top}px; height:${height}px; left:calc(50px + ${leftPct}%); width:calc(${item.widthPct}% - 4px);"
+                data-id="${record.id}">
+                <div class="day-event-title">${config.icon} ${escapeHtml(record.title)}</div>
+                <div class="day-event-time">${record.startTime} - ${record.endTime}</div>
+                ${record.note ? `<div class="day-event-note">${escapeHtml(record.note)}</div>` : ''}
+            </div>`;
+        });
+
+        html += `</div></div>`;
     });
 
-    const sepY = 18 * 60;
-    html += `<div class="day-separator" style="top:${sepY}px;"></div>`;
-    html += `<div class="day-separator-label" style="top:${sepY}px;">── 次日凌晨 ──</div>`;
+    container.innerHTML = html;
 
-    const layoutResult = layoutEvents(records);
-    layoutResult.forEach(item => {
-        const record = item.record;
-        const config = TYPE_CONFIG[record.type] || TYPE_CONFIG.other;
-        let startY = visualY(record.startTime);
-        let endY = visualY(record.endTime);
-        if (endY <= startY) endY = 1440;
-        const top = startY;
-        const height = Math.max(endY - startY, 20);
-        const leftPct = item.col * item.widthPct;
-        html += `<div class="day-event-block ${record.type}"
-            style="top:${top}px; height:${height}px; left:calc(70px + ${leftPct}%); width:calc(${item.widthPct}% - 4px);"
-            data-id="${record.id}">
-            <div class="day-event-title">${config.icon} ${escapeHtml(record.title)}</div>
-            <div class="day-event-time">${record.startTime} - ${record.endTime}</div>
-            ${record.note ? `<div class="day-event-note">${escapeHtml(record.note)}</div>` : ''}
-        </div>`;
-    });
-
-    el.dayTimeline.innerHTML = html;
-    const wrapper = el.dayView.querySelector('.day-timeline-wrapper');
+    // 滚动到中间列的顶部
+    const wrapper = container.parentElement;
     if (wrapper && !wrapper._scrolled) {
-        wrapper.scrollTop = 0;
+        wrapper.scrollLeft = wrapper.scrollWidth / 3;
         wrapper._scrolled = true;
     }
 
-    el.dayTimeline.querySelectorAll('.day-hour-slot').forEach(slot => {
+    // 事件绑定
+    container.querySelectorAll('.day-hour-slot[data-date]').forEach(slot => {
         slot.addEventListener('click', () => {
             const hour = String(slot.dataset.hour).padStart(2, '0');
             const endHour = String(Math.min(23, parseInt(hour) + 1)).padStart(2, '0');
@@ -640,7 +675,7 @@ function renderDayView() {
         });
     });
 
-    el.dayTimeline.querySelectorAll('.day-event-block').forEach(block => {
+    container.querySelectorAll('.day-event-block').forEach(block => {
         block.addEventListener('click', (e) => {
             e.stopPropagation();
             openEditModal(block.dataset.id);
@@ -1369,33 +1404,15 @@ const Stats = {
             return;
         }
 
-        // 按板块统计
-        const moduleStats = {};
-        data.forEach(d => {
-            if (!moduleStats[d.module]) {
-                moduleStats[d.module] = { total: 0, wrong: 0 };
-            }
-            moduleStats[d.module].total += d.total;
-            moduleStats[d.module].wrong += d.wrong;
+        // 按时间倒序排列
+        const sorted = [...data].sort((a, b) => {
+            const dateCompare = b.date.localeCompare(a.date);
+            if (dateCompare !== 0) return dateCompare;
+            return b.id.localeCompare(a.id);
         });
 
-        let html = '<div class="module-summary">';
-        Object.entries(moduleStats).forEach(([module, s]) => {
-            const rate = s.total > 0 ? ((s.total - s.wrong) / s.total * 100).toFixed(1) : 0;
-            const lastRecord = data.filter(d => d.module === module).sort((a, b) => b.date.localeCompare(a.date))[0];
-            const lastRate = lastRecord && lastRecord.total > 0 ? ((lastRecord.total - lastRecord.wrong) / lastRecord.total * 100).toFixed(1) : 0;
-            const arrow = lastRate > rate ? '<span class="arrow up">↑</span>' : lastRate < rate ? '<span class="arrow down">↓</span>' : '';
-
-            html += `<div class="module-summary-item">
-                <h4>${module}</h4>
-                <div class="value">${rate}% ${arrow}</div>
-                <div style="font-size:11px;color:var(--text-light);margin-top:4px;">做题${s.total} | 错${s.wrong}</div>
-            </div>`;
-        });
-        html += '</div>';
-
-        html += '<table class="score-table"><thead><tr><th>板块</th><th>日期</th><th>做题</th><th>错题</th><th>正确率</th><th>操作</th></tr></thead><tbody>';
-        data.sort((a, b) => b.date.localeCompare(a.date)).forEach(d => {
+        let html = '<table class="score-table"><thead><tr><th>板块</th><th>日期</th><th>做题</th><th>错题</th><th>正确率</th><th>操作</th></tr></thead><tbody>';
+        sorted.forEach(d => {
             const rate = d.total > 0 ? ((d.total - d.wrong) / d.total * 100).toFixed(1) : 0;
             html += `<tr>
                 <td>${d.module}</td>
