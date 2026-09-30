@@ -1313,15 +1313,11 @@ const Stats = {
     },
 
     renderModuleChart() {
-        const canvas = document.getElementById('moduleChart');
-        const ctx = canvas.getContext('2d');
+        const container = document.getElementById('moduleChart');
         const data = getData().stats.modules;
-        this._setupCanvas(canvas);
-        const W = canvas.width, H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-
+        
         if (data.length === 0) {
-            this._drawEmpty(ctx, W, H);
+            container.innerHTML = '<div style="color:var(--text-light);font-size:14px;padding:20px;text-align:center;">暂无数据</div>';
             return;
         }
 
@@ -1340,51 +1336,28 @@ const Stats = {
         const wrongAll = entries.reduce((sum, [, s]) => sum + s.wrong, 0);
         const correctRate = totalAll > 0 ? ((totalAll - wrongAll) / totalAll * 100).toFixed(1) : 0;
 
-        const centerX = W / 2;
-        const centerY = H / 2;
-        const radius = Math.min(W, H) / 2 - 60;
-        let startAngle = -Math.PI / 2;
+        // 生成小方块展示
+        let html = '<div class="module-cards">';
+        
+        // 总数据卡片
+        html += `<div class="module-card total-card">
+            <div class="module-card-title">总计</div>
+            <div class="module-card-value">${correctRate}%</div>
+            <div class="module-card-detail">${totalAll}题 | 错${wrongAll}</div>
+        </div>`;
 
-        const colors = ['#007AFF', '#34C759', '#AF52DE', '#FF9500', '#FF3B30'];
-
-        entries.forEach(([module, s], idx) => {
-            const sliceAngle = (s.total / totalAll) * 2 * Math.PI;
-            const endAngle = startAngle + sliceAngle;
-
-            ctx.beginPath();
-            ctx.moveTo(centerX, centerY);
-            ctx.arc(centerX, centerY, radius, startAngle, endAngle);
-            ctx.closePath();
-            ctx.fillStyle = colors[idx % colors.length];
-            ctx.fill();
-
-            startAngle = endAngle;
+        // 各板块卡片
+        entries.forEach(([module, s]) => {
+            const rate = s.total > 0 ? ((s.total - s.wrong) / s.total * 100).toFixed(1) : 0;
+            html += `<div class="module-card">
+                <div class="module-card-title">${module}</div>
+                <div class="module-card-value">${rate}%</div>
+                <div class="module-card-detail">${s.total}题 | 错${s.wrong}</div>
+            </div>`;
         });
 
-        // 右上角显示总数据
-        ctx.fillStyle = '#1C1C1E';
-        ctx.font = 'bold 14px sans-serif';
-        ctx.textAlign = 'right';
-        ctx.fillText(`总做题: ${totalAll}`, W - 10, 20);
-        ctx.font = '13px sans-serif';
-        ctx.fillStyle = '#34C759';
-        ctx.fillText(`正确率: ${correctRate}%`, W - 10, 38);
-
-        // 生成图例
-        let legendContainer = document.getElementById('moduleLegend');
-        if (!legendContainer) {
-            legendContainer = document.createElement('div');
-            legendContainer.id = 'moduleLegend';
-            legendContainer.className = 'stats-legend';
-            canvas.parentNode.insertBefore(legendContainer, canvas.nextSibling);
-        }
-        legendContainer.innerHTML = entries.map(([module, s], idx) => {
-            const rate = s.total > 0 ? ((s.total - s.wrong) / s.total * 100).toFixed(1) : 0;
-            return `<div class="legend-item">
-                <div class="legend-color" style="background:${colors[idx % colors.length]}"></div>
-                <span>${module}: ${rate}% (${s.total}题)</span>
-            </div>`;
-        }).join('');
+        html += '</div>';
+        container.innerHTML = html;
     },
 
     renderModuleTable() {
