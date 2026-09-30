@@ -8,7 +8,6 @@
 </head>
 <body>
     <div class="app">
-        <!-- 顶部导航 -->
         <header class="header">
             <h1 class="logo">📝 生活记录</h1>
             <nav class="nav">
@@ -20,7 +19,6 @@
             </nav>
         </header>
 
-        <!-- 日期控制栏（首页/统计隐藏） -->
         <div class="date-controls" id="dateControls" style="display:none;">
             <button class="arrow-btn" id="prevBtn">◀</button>
             <span class="current-date" id="currentDate"></span>
@@ -28,13 +26,12 @@
             <button class="today-btn" id="todayBtn">今天</button>
         </div>
 
-        <!-- 主内容区 -->
         <main class="main-content">
             <!-- 首页 -->
             <div class="view home-view active" id="homeView">
                 <div class="art-title" id="artTitle">一万年太久，只争朝夕！</div>
                 <div class="home-content">
-                    <div class="home-section todo-section">
+                    <div class="glass-card todo-section">
                         <h2>📋 本周待办</h2>
                         <div class="todo-input-row">
                             <input type="text" id="newTodoInput" placeholder="添加新待办..." class="todo-input">
@@ -53,7 +50,7 @@
                             <button id="importDataBtn" class="btn-data">📥 导入数据</button>
                         </div>
                     </div>
-                    <div class="home-section carousel-section">
+                    <div class="glass-card carousel-section">
                         <h2>🖼️ 近日掠影</h2>
                         <div class="carousel-container" id="carouselContainer">
                             <div class="carousel-empty">暂无图片，去月视图添加感悟图片吧 📷</div>
@@ -70,39 +67,49 @@
 
             <!-- 日视图 -->
             <div class="view day-view" id="dayView">
-                <div class="day-todo-bar" id="dayTodoBar"></div>
-                <div class="day-timeline-wrapper">
-                    <div class="day-timeline" id="dayTimeline"></div>
+                <div class="glass-card">
+                    <div class="day-todo-bar" id="dayTodoBar"></div>
+                    <div class="day-timeline-wrapper">
+                        <div class="day-timeline" id="dayTimeline"></div>
+                    </div>
                 </div>
             </div>
 
             <!-- 周视图 -->
             <div class="view week-view" id="weekView">
-                <div class="week-grid"></div>
+                <div class="week-scroll-container" id="weekScrollContainer"></div>
             </div>
 
             <!-- 月视图 -->
             <div class="view month-view" id="monthView">
-                <div class="month-dashboard" id="monthDashboard"></div>
-                <div class="month-grid"></div>
+                <div class="glass-card month-dashboard" id="monthDashboard"></div>
+                <div class="glass-card month-grid-card">
+                    <div class="month-grid"></div>
+                </div>
             </div>
 
             <!-- 统计视图 -->
             <div class="view stats-view" id="statsView">
                 <div class="stats-grid">
                     <!-- 时间分布饼图 -->
-                    <div class="stats-card">
-                        <h3>📊 时间分布</h3>
+                    <div class="glass-card stats-widget" id="widget-pie">
+                        <div class="widget-header">
+                            <h3>📊 时间分布</h3>
+                            <button class="widget-expand-btn" onclick="Stats.toggleWidget('widget-pie')">⤢</button>
+                        </div>
                         <div class="stats-date-selector">
-                            <label>选择月份：</label>
+                            <label>月份：</label>
                             <input type="month" id="pieMonth" class="stats-input">
                         </div>
                         <canvas id="pieChart" class="stats-canvas"></canvas>
                         <div id="pieLegend" class="stats-legend"></div>
                     </div>
                     <!-- 体重变化 -->
-                    <div class="stats-card">
-                        <h3>⚖️ 体重变化</h3>
+                    <div class="glass-card stats-widget" id="widget-weight">
+                        <div class="widget-header">
+                            <h3>⚖️ 体重变化</h3>
+                            <button class="widget-expand-btn" onclick="Stats.toggleWidget('widget-weight')">⤢</button>
+                        </div>
                         <canvas id="weightChart" class="stats-canvas"></canvas>
                         <div class="stats-form">
                             <div class="stats-form-row">
@@ -113,34 +120,47 @@
                         </div>
                         <div id="weightList" class="stats-data-list"></div>
                     </div>
-                    <!-- 词云图 -->
-                    <div class="stats-card">
-                        <h3>☁️ 日程词云</h3>
-                        <div class="stats-date-selector">
-                            <label>选择月份：</label>
-                            <input type="month" id="wordCloudMonth" class="stats-input">
+                    <!-- 分数记录 -->
+                    <div class="glass-card stats-widget" id="widget-scores">
+                        <div class="widget-header">
+                            <h3>📝 分数记录</h3>
+                            <button class="widget-expand-btn" onclick="Stats.toggleWidget('widget-scores')">⤢</button>
                         </div>
-                        <div id="wordCloud" class="word-cloud-container"></div>
+                        <div class="stats-form">
+                            <div class="stats-form-row">
+                                <input type="text" id="scoreName" class="stats-input" placeholder="名称">
+                                <input type="date" id="scoreDate" class="stats-input">
+                                <input type="number" id="scoreValue" class="stats-input" placeholder="分数" step="0.1">
+                            </div>
+                            <div class="stats-form-row" style="margin-top:8px;">
+                                <input type="text" id="scoreNote" class="stats-input" placeholder="备注（可选）" style="flex:2;">
+                                <button class="btn btn-primary btn-sm" onclick="Stats.addScore()">添加</button>
+                            </div>
+                        </div>
+                        <div id="scoreTable" class="score-table-container"></div>
                     </div>
-                    <!-- 运动日历 -->
-                    <div class="stats-card">
-                        <h3>🏃 运动日历</h3>
-                        <div class="stats-date-selector">
-                            <label>选择月份：</label>
-                            <input type="month" id="exerciseMonth" class="stats-input">
+                    <!-- 板块监控 -->
+                    <div class="glass-card stats-widget" id="widget-modules">
+                        <div class="widget-header">
+                            <h3>📈 板块监控</h3>
+                            <button class="widget-expand-btn" onclick="Stats.toggleWidget('widget-modules')">⤢</button>
                         </div>
-                        <div id="exerciseCalendar" class="exercise-calendar"></div>
-                        <div class="exercise-emoji-picker">
-                            <span>常用运动：</span>
-                            <span class="emoji-btn" data-emoji="⚽">⚽</span>
-                            <span class="emoji-btn" data-emoji="🏸">🏸</span>
-                            <span class="emoji-btn" data-emoji="🏃">🏃</span>
-                            <span class="emoji-btn" data-emoji="🚴">🚴</span>
-                            <span class="emoji-btn" data-emoji="🏊">🏊</span>
-                            <span class="emoji-btn" data-emoji="🏋️">🏋️</span>
-                            <span class="emoji-btn" data-emoji="🧘">🧘</span>
-                            <span class="emoji-btn" data-emoji="🎾">🎾</span>
+                        <div class="stats-form">
+                            <div class="stats-form-row">
+                                <select id="moduleSelect" class="stats-input">
+                                    <option value="政治常识">政治常识</option>
+                                    <option value="言语理解">言语理解</option>
+                                    <option value="数量关系">数量关系</option>
+                                    <option value="推理判断">推理判断</option>
+                                    <option value="资料分析">资料分析</option>
+                                </select>
+                                <input type="number" id="moduleTotal" class="stats-input" placeholder="做题数" min="0">
+                                <input type="number" id="moduleWrong" class="stats-input" placeholder="错题数" min="0">
+                                <button class="btn btn-primary btn-sm" onclick="Stats.addModule()">添加</button>
+                            </div>
                         </div>
+                        <canvas id="moduleChart" class="stats-canvas"></canvas>
+                        <div id="moduleTable" class="module-table-container"></div>
                     </div>
                 </div>
             </div>
@@ -226,10 +246,7 @@
             </div>
         </div>
 
-        <!-- 浮动添加按钮 -->
         <button class="fab" id="fabAdd" style="display:none;">+</button>
-
-        <!-- Toast 通知 -->
         <div class="toast" id="toast"></div>
     </div>
 
