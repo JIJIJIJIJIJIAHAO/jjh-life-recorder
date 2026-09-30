@@ -2,7 +2,7 @@
 const STORAGE_KEY = 'life_recorder_data';
 
 function getDefaultData() {
-    return { records: [], todos: [], feelings: {}, stats: { sleep: [], weight: [], expense: [], exercise: [] } };
+    return { records: [], todos: [], feelings: {}, stats: { sleep: [], weight: [], expense: [], exercise: [], exerciseCalendar: {} } };
 }
 
 function getData() {
@@ -13,11 +13,12 @@ function getData() {
         if (!data.records) data.records = [];
         if (!data.todos) data.todos = [];
         if (!data.feelings) data.feelings = {};
-        if (!data.stats) data.stats = { sleep: [], weight: [], expense: [], exercise: [] };
+        if (!data.stats) data.stats = { sleep: [], weight: [], expense: [], exercise: [], exerciseCalendar: {} };
         if (!data.stats.sleep) data.stats.sleep = [];
         if (!data.stats.weight) data.stats.weight = [];
         if (!data.stats.expense) data.stats.expense = [];
         if (!data.stats.exercise) data.stats.exercise = [];
+        if (!data.stats.exerciseCalendar) data.stats.exerciseCalendar = {};
         for (const k in data.feelings) {
             if (typeof data.feelings[k] === 'string') {
                 data.feelings[k] = { text: data.feelings[k], image: null };
@@ -1330,7 +1331,7 @@ function importData() {
                     Object.assign(current.feelings, imported.feelings);
                 }
 
-                // 合并 stats：按 id 去重
+                // 合并 stats：数组按 id 去重，对象按 key 合并
                 if (imported.stats) {
                     ['sleep', 'weight', 'expense', 'exercise'].forEach(key => {
                         if (imported.stats[key]) {
@@ -1340,6 +1341,13 @@ function importData() {
                             current.stats[key] = Array.from(map.values());
                         }
                     });
+                    // 运动日历（对象形式 {date: emoji}）按日期合并，导入数据优先
+                    if (imported.stats.exerciseCalendar) {
+                        current.stats.exerciseCalendar = Object.assign(
+                            current.stats.exerciseCalendar || {},
+                            imported.stats.exerciseCalendar
+                        );
+                    }
                 }
 
                 saveData(current);
