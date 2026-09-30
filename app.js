@@ -438,6 +438,7 @@ function parseNLInput(text) {
         const afterTomorrow = new Date(now);
         afterTomorrow.setDate(afterTomorrow.getDate() + 2);
 
+        // 解析日期
         if (/^今天/.test(remaining)) {
             date = todayStr;
             remaining = remaining.replace(/^今天\s*/, '');
@@ -458,32 +459,68 @@ function parseNLInput(text) {
             }
         }
 
-        const stdTimeMatch = remaining.match(/(\d{1,2})[:：](\d{2})\s*[-~到至]\s*(\d{1,2})[:：](\d{2})/);
-        if (stdTimeMatch) {
-            startTime = `${stdTimeMatch[1].padStart(2,'0')}:${stdTimeMatch[2]}`;
-            endTime = `${stdTimeMatch[3].padStart(2,'0')}:${stdTimeMatch[4]}`;
-            remaining = remaining.replace(stdTimeMatch[0], '');
-        } else {
-            const amPmMatch = remaining.match(/(上午|早上)?(\d{1,2})\s*[-~到至]\s*(下午|晚上)?(\d{1,2})\s*[点时]/);
-            if (amPmMatch) {
-                let sh = parseInt(amPmMatch[2]);
-                let eh = parseInt(amPmMatch[4]);
-                if ((amPmMatch[3] === '下午' || amPmMatch[3] === '晚上') && eh < 12) eh += 12;
-                startTime = `${String(sh).padStart(2,'0')}:00`;
-                endTime = `${String(eh).padStart(2,'0')}:00`;
-                remaining = remaining.replace(amPmMatch[0], '');
+        // 解析时间 - 支持"一点到三点半"、"1点到3点半"、"13:00到15:30"等格式
+        const timePatterns = [
+            // "一点到三点半"、"下午一点到三点半"
+            { regex: /(上午|早上|下午|晚上)?([一二三四五六七八九十]+)点(半|\d+)?\s*[到至]\s*(下午|晚上)?([一二三四五六七八九十]+)点(半|\d+)?/, type: 'cn' },
+            // "1点到3点半"、"13:00到15:30"
+            { regex: /(\d{1,2})[:：](\d{2})\s*[-~到至]\s*(\d{1,2})[:：](\d{2})/, type: 'std' },
+            // "1点到3点"
+            { regex: /(上午|早上|下午|晚上)?(\d{1,2})\s*[点时]\s*[-~到至]\s*(下午|晚上)?(\d{1,2})\s*[点时]/, type: 'simple' }
+        ];
+
+        for (const pattern of timePatterns) {
+            const match = remaining.match(pattern.regex);
+            if (match) {
+                if (pattern.type === 'cn') {
+                    // 中文数字转换
+                    const cnToNum = (str) => {
+                        const map = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};
+                        return map[str] || parseInt(str);
+                    };
+                    let sh = cnToNum(match[2]);
+                    let sm = match[3] === '半' ? 30 : (match[3] ? parseInt(match[3]) : 0);
+                    let eh = cnToNum(match[5]);
+                    let em = match[6] === '半' ? 30 : (match[6] ? parseInt(match[6]) : 0);
+                    if ((match[1] === '下午' || match[1] === '晚上') && sh < 12) sh += 12;
+                    if ((match[4] === '下午' || match[4] === '晚上') && eh < 12) eh += 12;
+                    startTime = `${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}`;
+                    endTime = `${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}`;
+                } else if (pattern.type === 'std') {
+                    startTime = `${match[1].padStart(2,'0')}:${match[2]}`;
+                    endTime = `${match[3].padStart(2,'0')}:${match[4]}`;
+                } else if (pattern.type === 'simple') {
+                    let sh = parseInt(match[2]);
+                    let eh = parseInt(match[4]);
+                    if ((match[1] === '下午' || match[1] === '晚上') && sh < 12) sh += 12;
+                    if ((match[3] === '下午' || match[3] === '晚上') && eh < 12) eh += 12;
+                    startTime = `${String(sh).padStart(2,'0')}:00`;
+                    endTime = `${String(eh).padStart(2,'0')}:00`;
+                }
+                remaining = remaining.replace(match[0], '');
+                break;
             }
+        }
+
+        // 解析分类 - 支持"类型为学习"、"分类：学习"等
+        const typeMatch = remaining.match(/(?:类型|分类)[是为：:]\s*(工作|生活|学习|运动|饮食|纯玩|其他)/);
+        if (typeMatch) {
+            const typeMap = {'工作':'work','生活':'life','学习':'study','运动':'sport','饮食':'food','纯玩':'play','其他':'other'};
+            type = typeMap[typeMatch[1]];
+            remaining = remaining.replace(typeMatch[0], '');
         }
 
         title = remaining.trim();
 
-        const titleLower = title.toLowerCase();
-        if (/学习|高数|英语|论文|课程|作业|考试|复习|看书|阅读/.test(title)) type = 'study';
-        else if (/运动|跑步|健身|游泳|篮球|足球|瑜伽|散步/.test(title)) type = 'sport';
-        else if (/吃饭|午餐|晚餐|早餐|聚餐|火锅|奶茶/.test(title)) type = 'food';
-        else if (/工作|开会|组会|汇报|项目|会议|面试|实习/.test(title)) type = 'work';
-        else if (/游戏|电影|逛街|旅游|玩|聚会/.test(title)) type = 'play';
-        else if (/看病|医院|牙|体检|理发/.test(title)) type = 'life';
+        // 如果未指定分类，根据标题关键词推断
+        if (type === 'other') {
+            if (/学习|高数|英语|论文|课程|作业|考试|复习|看书|阅读|刷题|公考/.test(title)) type = 'study';
+            else if (/运动|跑步|健身|游泳|篮球|足球|瑜伽|散步/.test(title)) type = 'sport';
+            else if (/吃饭|午餐|晚餐|早餐|聚餐|火锅|奶茶/.test(title)) type = 'food';
+            else if (/工作|开会|组会|汇报|项目|会议|面试|实习/.test(title)) type = 'work';
+            else if (/游戏|电影|逛街|旅游|玩|聚会/.test(title)) type = 'play';
+            else if (/看病|医院|牙|体检|理发/.test(title)) type = 'life';
+        }
 
         if (!title) error = '未识别到标题';
         if (!startTime || !endTime) error = (error ? error + '；' : '') + '未识别到时间';
@@ -662,7 +699,7 @@ function renderWeekView() {
     let html = '';
     weeks.forEach((weekStart, weekIdx) => {
         const isCurrentWeek = weekIdx === 2;
-        html += `<div class="week-page" ${isCurrentWeek ? 'id="currentWeekPage"' : ''}>`;
+        html += `<div class="week-page ${isCurrentWeek ? 'current-week' : ''}">`;
         html += '<div class="week-grid">';
         
         for (let i = 0; i < 7; i++) {
@@ -1310,7 +1347,7 @@ const Stats = {
 
         const colors = ['#007AFF', '#34C759', '#AF52DE', '#FF9500', '#FF3B30'];
 
-        entries.forEach(([, s], idx) => {
+        entries.forEach(([module, s], idx) => {
             const sliceAngle = (s.total / totalAll) * 2 * Math.PI;
             const endAngle = startAngle + sliceAngle;
 
@@ -1324,14 +1361,30 @@ const Stats = {
             startAngle = endAngle;
         });
 
-        // 中心文字
+        // 右上角显示总数据
         ctx.fillStyle = '#1C1C1E';
-        ctx.font = 'bold 16px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(`总做题: ${totalAll}`, centerX, centerY - 10);
-        ctx.font = '14px sans-serif';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`总做题: ${totalAll}`, W - 10, 20);
+        ctx.font = '13px sans-serif';
         ctx.fillStyle = '#34C759';
-        ctx.fillText(`正确率: ${correctRate}%`, centerX, centerY + 10);
+        ctx.fillText(`正确率: ${correctRate}%`, W - 10, 38);
+
+        // 生成图例
+        let legendContainer = document.getElementById('moduleLegend');
+        if (!legendContainer) {
+            legendContainer = document.createElement('div');
+            legendContainer.id = 'moduleLegend';
+            legendContainer.className = 'stats-legend';
+            canvas.parentNode.insertBefore(legendContainer, canvas.nextSibling);
+        }
+        legendContainer.innerHTML = entries.map(([module, s], idx) => {
+            const rate = s.total > 0 ? ((s.total - s.wrong) / s.total * 100).toFixed(1) : 0;
+            return `<div class="legend-item">
+                <div class="legend-color" style="background:${colors[idx % colors.length]}"></div>
+                <span>${module}: ${rate}% (${s.total}题)</span>
+            </div>`;
+        }).join('');
     },
 
     renderModuleTable() {

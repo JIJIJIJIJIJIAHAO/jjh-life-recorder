@@ -30,11 +30,25 @@
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(-45deg, #a8edea 0%, #fed6e3 25%, #d4fc79 50%, #96e6a1 75%, #a8edea 100%);
+    background-size: 400% 400%;
+    animation: gradientFlow 20s ease infinite;
     background-attachment: fixed;
     color: var(--text);
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
+}
+
+@keyframes gradientFlow {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
 }
 
 .app {
@@ -693,20 +707,24 @@ body {
 .week-scroll-container {
     height: calc(100vh - 180px);
     overflow-y: auto;
-    scroll-snap-type: y mandatory;
     scroll-behavior: smooth;
 }
 
 .week-page {
-    scroll-snap-align: start;
-    min-height: 100%;
-    padding: 20px 0;
+    padding: 12px 0;
+}
+
+.week-page.current-week {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: var(--radius-lg);
+    margin: 8px 0;
+    padding: 16px 0;
 }
 
 .week-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    gap: 12px;
+    gap: 10px;
 }
 
 .week-day {
