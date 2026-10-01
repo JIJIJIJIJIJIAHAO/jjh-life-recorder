@@ -274,7 +274,6 @@ function initDOM() {
     el.newTodoTime = document.getElementById('newTodoTime');
     el.addTodoBtn = document.getElementById('addTodoBtn');
     el.todoList = document.getElementById('todoList');
-    el.dayTodoBar = document.getElementById('dayTodoBar');
     el.dayTimeline = document.getElementById('dayTimeline');
     el.carouselContainer = document.getElementById('carouselContainer');
     el.nlInput = document.getElementById('nlInput');
@@ -571,24 +570,7 @@ function handleNLParse() {
 
 // ===== 日视图 =====
 function renderDayView() {
-    const dateStr = formatDate(currentDate);
     const data = getData();
-    const dayTodos = getDayTodos(dateStr);
-
-    // 待办栏
-    if (dayTodos.length > 0) {
-        el.dayTodoBar.style.display = 'block';
-        el.dayTodoBar.innerHTML = '<h4>📋 当日待办</h4>' + dayTodos.map(t => `
-            <div class="day-todo-item">
-                <div class="todo-checkbox ${t.completed ? 'checked' : ''}" style="width:16px;height:16px;"
-                     onclick="toggleTodo('${t.id}')"></div>
-                <span class="todo-text ${t.completed ? 'completed' : ''}">${escapeHtml(t.title)}</span>
-                ${t.time ? `<span style="font-size:11px;color:var(--text-light);">${t.time}</span>` : ''}
-            </div>
-        `).join('');
-    } else {
-        el.dayTodoBar.style.display = 'none';
-    }
 
     // 三列日期
     const yesterday = new Date(currentDate);
@@ -597,21 +579,39 @@ function renderDayView() {
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     const dates = [
-        { date: yesterday, label: '昨天', isCenter: false },
-        { date: currentDate, label: '今天', isCenter: true },
-        { date: tomorrow, label: '明天', isCenter: false }
+        { date: yesterday, isCenter: false },
+        { date: currentDate, isCenter: true },
+        { date: tomorrow, isCenter: false }
     ];
 
     const container = document.getElementById('dayThreeCol');
     let html = '';
 
-    dates.forEach(({ date, label, isCenter }) => {
+    dates.forEach(({ date, isCenter }) => {
         const ds = formatDate(date);
         const records = data.records.filter(r => r.date === ds);
+        const dayTodos = getDayTodos(ds);
         const colClass = isCenter ? 'day-column center' : 'day-column side';
+        const dateText = formatDateDisplay(date).split(' ')[0].slice(5);
+        // 仅当查看列恰好是真今天时，日期用红色圆圈打底
+        const dateHtml = (isCenter && isToday(date))
+            ? `<span class="day-date-badge">${dateText}</span>`
+            : dateText;
 
         html += `<div class="${colClass}" data-date="${ds}">`;
-        html += `<div class="day-column-header">${label} · ${formatDateDisplay(date).split(' ')[0].slice(5)}</div>`;
+        html += `<div class="day-column-header">${dateHtml}</div>`;
+
+        // 当日待办：置于该日期列的顶部（日期下方），自动换行
+        if (dayTodos.length > 0) {
+            html += `<div class="day-column-todos">` + dayTodos.map(t => `
+                <div class="day-col-todo ${t.completed ? 'done' : ''}" data-todo-id="${t.id}"
+                     onclick="toggleTodo('${t.id}')">
+                    <span class="day-col-todo-check ${t.completed ? 'checked' : ''}">${t.completed ? '✓' : ''}</span>
+                    <span class="day-col-todo-text">${escapeHtml(t.title)}</span>
+                    ${t.time ? `<span class="day-col-todo-time">${t.time}</span>` : ''}
+                </div>`).join('') + `</div>`;
+        }
+
         html += `<div class="day-column-timeline">`;
 
         // 时间轴（6:00-23:00 + 0:00-5:00）
