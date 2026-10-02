@@ -226,6 +226,7 @@ let editingRecordId = null;
 let editingFeelingDate = null;
 let showCompletedTodos = false;
 let carouselTimer = null;
+let expandedTodoDate = null;
 
 // ===== DOM =====
 const el = {};
@@ -584,45 +585,67 @@ function renderDayView() {
         { date: tomorrow, isCenter: false }
     ];
 
+    // 时间轴顺序（6:00-23:00 + 0:00-5:00）
+    const displayOrder = [];
+    for (let i = 6; i <= 23; i++) displayOrder.push(i);
+    for (let i = 0; i <= 5; i++) displayOrder.push(i);
+
     const container = document.getElementById('dayThreeCol');
     let html = '';
+
+    // 左侧共享 24h 时间轴（三天共用，保证同一时刻对齐）
+    html += '<div class="day-axis">';
+    displayOrder.forEach((realHour, idx) => {
+        const hourStr = String(realHour).padStart(2, '0') + ':00';
+        html += `<div class="day-hour-label" style="top:${idx * 60}px;">${hourStr}</div>`;
+    });
+    html += '</div>';
+
+    html += '<div class="day-cols">';
 
     dates.forEach(({ date, isCenter }) => {
         const ds = formatDate(date);
         const records = data.records.filter(r => r.date === ds);
-        const dayTodos = getDayTodos(ds);
+        // 待办按时间从早到晚排列（无时间的排最后）
+        const dayTodos = getDayTodos(ds).slice().sort((a, b) =>
+            (a.time || '99:99').localeCompare(b.time || '99:99')
+        );
         const colClass = isCenter ? 'day-column center' : 'day-column side';
         const dateText = formatDateDisplay(date).split(' ')[0].slice(5);
         // 仅当查看列恰好是真今天时，日期用红色圆圈打底
         const dateHtml = (isCenter && isToday(date))
             ? `<span class="day-date-badge">${dateText}</span>`
             : dateText;
+        const isOpen = expandedTodoDate === ds;
+        const todoBtn = `<button class="day-todo-toggle ${isOpen ? 'active' : ''} ${dayTodos.length === 0 ? 'empty' : ''}"
+            data-date="${ds}" title="${dayTodos.length > 0 ? '待办事项' : '暂无待办'}">
+            <span class="tt-icon">▾</span>
+            ${dayTodos.length > 0 ? `<span class="tt-count">${dayTodos.length}</span>` : ''}
+        </button>`;
 
         html += `<div class="${colClass}" data-date="${ds}">`;
-        html += `<div class="day-column-header">${dateHtml}</div>`;
+        html += `<div class="day-column-header"><span class="day-col-date">${dateHtml}</span>${todoBtn}</div>`;
 
-        // 当日待办：置于该日期列的顶部（日期下方），自动换行
-        if (dayTodos.length > 0) {
-            html += `<div class="day-column-todos">` + dayTodos.map(t => `
-                <div class="day-col-todo ${t.completed ? 'done' : ''}" data-todo-id="${t.id}"
+        // 待办折叠面板（默认收起；展开时覆盖在时间轴上方，不影响三列对齐）
+        html += `<div class="day-column-todos ${isOpen ? 'open' : ''}">`;
+        if (dayTodos.length === 0) {
+            html += '<div class="day-todo-empty">暂无待办 ✨</div>';
+        } else {
+            dayTodos.forEach(t => {
+                html += `<div class="day-col-todo ${t.completed ? 'done' : ''}" data-todo-id="${t.id}"
                      onclick="toggleTodo('${t.id}')">
                     <span class="day-col-todo-check ${t.completed ? 'checked' : ''}">${t.completed ? '✓' : ''}</span>
                     <span class="day-col-todo-text">${escapeHtml(t.title)}</span>
                     ${t.time ? `<span class="day-col-todo-time">${t.time}</span>` : ''}
-                </div>`).join('') + `</div>`;
+                </div>`;
+            });
         }
+        html += `</div>`;
 
         html += `<div class="day-column-timeline">`;
 
-        // 时间轴（6:00-23:00 + 0:00-5:00）
-        const displayOrder = [];
-        for (let i = 6; i <= 23; i++) displayOrder.push(i);
-        for (let i = 0; i <= 5; i++) displayOrder.push(i);
-
         displayOrder.forEach((realHour, idx) => {
             const yPos = idx * 60;
-            const hourStr = String(realHour).padStart(2, '0') + ':00';
-            html += `<div class="day-hour-label" style="top:${yPos}px;">${hourStr}</div>`;
             if (isCenter) {
                 html += `<div class="day-hour-slot" style="top:${yPos}px;" data-date="${ds}" data-hour="${realHour}"></div>`;
             } else {
@@ -646,7 +669,7 @@ function renderDayView() {
             const height = Math.max(endY - startY, 20);
             const leftPct = item.col * item.widthPct;
             html += `<div class="day-event-block ${record.type}"
-                style="top:${top}px; height:${height}px; left:calc(50px + ${leftPct}%); width:calc(${item.widthPct}% - 4px);"
+                style="top:${top}px; height:${height}px; left:${leftPct}%; width:calc(${item.widthPct}% - 4px);"
                 data-id="${record.id}">
                 <div class="day-event-title">${config.icon} ${escapeHtml(record.title)}</div>
                 <div class="day-event-time">${record.startTime} - ${record.endTime}</div>
@@ -657,6 +680,7 @@ function renderDayView() {
         html += `</div></div>`;
     });
 
+    html += '</div>';
     container.innerHTML = html;
 
     // 滚动到时间轴顶部
@@ -666,7 +690,7 @@ function renderDayView() {
         wrapper._scrolled = true;
     }
 
-    // 事件绑定
+    // 事件绑定：点击空白时段添加日程
     container.querySelectorAll('.day-hour-slot[data-date]').forEach(slot => {
         slot.addEventListener('click', () => {
             const hour = String(slot.dataset.hour).padStart(2, '0');
@@ -675,10 +699,31 @@ function renderDayView() {
         });
     });
 
+    // 事件块：点击编辑
     container.querySelectorAll('.day-event-block').forEach(block => {
         block.addEventListener('click', (e) => {
             e.stopPropagation();
             openEditModal(block.dataset.id);
+        });
+    });
+
+    // 待办按钮：展开/收起（互斥，丝滑动画由 CSS transition 实现）
+    container.querySelectorAll('.day-todo-toggle').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (btn.classList.contains('empty')) return;
+            const col = btn.closest('.day-column');
+            const panel = col.querySelector('.day-column-todos');
+            const wasOpen = panel.classList.contains('open');
+            container.querySelectorAll('.day-column-todos.open').forEach(p => p.classList.remove('open'));
+            container.querySelectorAll('.day-todo-toggle.active').forEach(b => b.classList.remove('active'));
+            if (!wasOpen) {
+                panel.classList.add('open');
+                btn.classList.add('active');
+                expandedTodoDate = col.dataset.date;
+            } else {
+                expandedTodoDate = null;
+            }
         });
     });
 }
