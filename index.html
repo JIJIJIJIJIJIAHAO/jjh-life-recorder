@@ -55,11 +55,15 @@
                         <div class="carousel-container" id="carouselContainer">
                             <div class="carousel-empty">暂无图片，去月视图添加感悟图片吧 📷</div>
                         </div>
-                        <div class="nl-input-area">
-                            <h2>✏️ 快速记录</h2>
-                            <textarea id="nlInput" class="nl-textarea" placeholder="用自然语言记录日程，例如：&#10;今天下午2-4点 图书馆学习高数&#10;明天上午9-11点 组会&#10;9月12日 14:00-15:00 看牙医" rows="4"></textarea>
-                            <button id="nlParseBtn" class="btn btn-primary btn-sm">解析并添加</button>
-                            <div id="nlPreview" class="nl-preview"></div>
+                        <div class="quick-stats">
+                            <div class="glass-card quick-stat-card">
+                                <div class="qs-label">今天已学习</div>
+                                <div class="qs-value" id="qsStudyHours">0.0<span class="qs-unit">小时</span></div>
+                            </div>
+                            <div class="glass-card quick-stat-card">
+                                <div class="qs-label">距离上海选调还有</div>
+                                <div class="qs-value" id="qsXuanDiaoDays">0<span class="qs-unit">天</span></div>
+                            </div>
                         </div>
                     </div>
                 </div>

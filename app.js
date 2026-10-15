@@ -227,6 +227,7 @@ let editingFeelingDate = null;
 let showCompletedTodos = false;
 let carouselTimer = null;
 let expandedTodoDate = null;
+let nowLineTimer = null; // 日视图"现在时间"红线定时器
 
 // ===== DOM =====
 const el = {};
@@ -277,9 +278,6 @@ function initDOM() {
     el.todoList = document.getElementById('todoList');
     el.dayTimeline = document.getElementById('dayTimeline');
     el.carouselContainer = document.getElementById('carouselContainer');
-    el.nlInput = document.getElementById('nlInput');
-    el.nlParseBtn = document.getElementById('nlParseBtn');
-    el.nlPreview = document.getElementById('nlPreview');
 }
 
 // ===== 视图切换 =====
@@ -331,6 +329,33 @@ function renderHomeView() {
     el.artTitle.textContent = dailyQuote;
     renderTodoList();
     renderCarousel();
+    renderQuickStats();
+}
+
+// 首页大数字：今天已学习（1 位小数）+ 距离上海选调笔试天数（整数）
+// 上海选调笔试日期（上海市2027年度选调生笔试 2026-10-31，如需修改请直接改这里）
+const SHANGHAI_XUANDIAO_DATE = '2026-10-31';
+
+function renderQuickStats() {
+    const data = getData();
+    const todayStr = formatDate(new Date());
+    let studyMins = 0;
+    (data.records || []).forEach(r => {
+        if (r.date === todayStr && r.type === 'study') {
+            studyMins += calcDurationMinutes(r.startTime, r.endTime);
+        }
+    });
+    const hours = (studyMins / 60).toFixed(1);
+    const hs = document.getElementById('qsStudyHours');
+    if (hs) hs.innerHTML = `${hours}<span class="qs-unit">小时</span>`;
+
+    const target = new Date(SHANGHAI_XUANDIAO_DATE + 'T00:00:00');
+    const now = new Date();
+    const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let days = Math.ceil((target - today0) / 86400000);
+    if (days < 0) days = 0;
+    const ds = document.getElementById('qsXuanDiaoDays');
+    if (ds) ds.innerHTML = `${days}<span class="qs-unit">天</span>`;
 }
 
 function renderTodoList() {
@@ -414,159 +439,6 @@ function renderCarousel() {
             dotEls.forEach((d, i) => d.classList.toggle('active', i === current));
         }, 4000);
     }
-}
-
-// ===== 自然语言解析 =====
-function parseNLInput(text) {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-    const results = [];
-    const now = new Date();
-
-    lines.forEach(line => {
-        let date = formatDate(now);
-        let startTime = '';
-        let endTime = '';
-        let title = '';
-        let type = 'other';
-        let error = null;
-
-        let remaining = line;
-
-        const todayStr = formatDate(now);
-        const tomorrow = new Date(now);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        const afterTomorrow = new Date(now);
-        afterTomorrow.setDate(afterTomorrow.getDate() + 2);
-
-        // 解析日期
-        if (/^今天/.test(remaining)) {
-            date = todayStr;
-            remaining = remaining.replace(/^今天\s*/, '');
-        } else if (/^明天/.test(remaining)) {
-            date = formatDate(tomorrow);
-            remaining = remaining.replace(/^明天\s*/, '');
-        } else if (/^后天/.test(remaining)) {
-            date = formatDate(afterTomorrow);
-            remaining = remaining.replace(/^后天\s*/, '');
-        } else {
-            const dateMatch = remaining.match(/(\d{1,2})月(\d{1,2})[日号]?\s*/);
-            if (dateMatch) {
-                const m = parseInt(dateMatch[1]);
-                const d = parseInt(dateMatch[2]);
-                const y = now.getFullYear();
-                date = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                remaining = remaining.replace(dateMatch[0], '');
-            }
-        }
-
-        // 解析时间 - 支持"一点到三点半"、"1点到3点半"、"13:00到15:30"等格式
-        const timePatterns = [
-            // "一点到三点半"、"下午一点到三点半"
-            { regex: /(上午|早上|下午|晚上)?([一二三四五六七八九十]+)点(半|\d+)?\s*[到至]\s*(下午|晚上)?([一二三四五六七八九十]+)点(半|\d+)?/, type: 'cn' },
-            // "1点到3点半"、"13:00到15:30"
-            { regex: /(\d{1,2})[:：](\d{2})\s*[-~到至]\s*(\d{1,2})[:：](\d{2})/, type: 'std' },
-            // "1点到3点"
-            { regex: /(上午|早上|下午|晚上)?(\d{1,2})\s*[点时]\s*[-~到至]\s*(下午|晚上)?(\d{1,2})\s*[点时]/, type: 'simple' }
-        ];
-
-        for (const pattern of timePatterns) {
-            const match = remaining.match(pattern.regex);
-            if (match) {
-                if (pattern.type === 'cn') {
-                    // 中文数字转换
-                    const cnToNum = (str) => {
-                        const map = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};
-                        return map[str] || parseInt(str);
-                    };
-                    let sh = cnToNum(match[2]);
-                    let sm = match[3] === '半' ? 30 : (match[3] ? parseInt(match[3]) : 0);
-                    let eh = cnToNum(match[5]);
-                    let em = match[6] === '半' ? 30 : (match[6] ? parseInt(match[6]) : 0);
-                    if ((match[1] === '下午' || match[1] === '晚上') && sh < 12) sh += 12;
-                    if ((match[4] === '下午' || match[4] === '晚上') && eh < 12) eh += 12;
-                    startTime = `${String(sh).padStart(2,'0')}:${String(sm).padStart(2,'0')}`;
-                    endTime = `${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}`;
-                } else if (pattern.type === 'std') {
-                    startTime = `${match[1].padStart(2,'0')}:${match[2]}`;
-                    endTime = `${match[3].padStart(2,'0')}:${match[4]}`;
-                } else if (pattern.type === 'simple') {
-                    let sh = parseInt(match[2]);
-                    let eh = parseInt(match[4]);
-                    if ((match[1] === '下午' || match[1] === '晚上') && sh < 12) sh += 12;
-                    if ((match[3] === '下午' || match[3] === '晚上') && eh < 12) eh += 12;
-                    startTime = `${String(sh).padStart(2,'0')}:00`;
-                    endTime = `${String(eh).padStart(2,'0')}:00`;
-                }
-                remaining = remaining.replace(match[0], '');
-                break;
-            }
-        }
-
-        // 解析分类 - 支持"类型为学习"、"分类：学习"等
-        const typeMatch = remaining.match(/(?:类型|分类)[是为：:]\s*(工作|生活|学习|运动|饮食|纯玩|其他)/);
-        if (typeMatch) {
-            const typeMap = {'工作':'work','生活':'life','学习':'study','运动':'sport','饮食':'food','纯玩':'play','其他':'other'};
-            type = typeMap[typeMatch[1]];
-            remaining = remaining.replace(typeMatch[0], '');
-        }
-
-        title = remaining.trim();
-
-        // 如果未指定分类，根据标题关键词推断
-        if (type === 'other') {
-            if (/学习|高数|英语|论文|课程|作业|考试|复习|看书|阅读|刷题|公考/.test(title)) type = 'study';
-            else if (/运动|跑步|健身|游泳|篮球|足球|瑜伽|散步/.test(title)) type = 'sport';
-            else if (/吃饭|午餐|晚餐|早餐|聚餐|火锅|奶茶/.test(title)) type = 'food';
-            else if (/工作|开会|组会|汇报|项目|会议|面试|实习/.test(title)) type = 'work';
-            else if (/游戏|电影|逛街|旅游|玩|聚会/.test(title)) type = 'play';
-            else if (/看病|医院|牙|体检|理发/.test(title)) type = 'life';
-        }
-
-        if (!title) error = '未识别到标题';
-        if (!startTime || !endTime) error = (error ? error + '；' : '') + '未识别到时间';
-
-        results.push({ date, startTime, endTime, title, type, error });
-    });
-
-    return results;
-}
-
-function handleNLParse() {
-    const text = el.nlInput.value.trim();
-    if (!text) return;
-    const parsed = parseNLInput(text);
-    let html = '';
-    let added = 0;
-    const data = getData();
-
-    parsed.forEach(p => {
-        if (p.error) {
-            html += `<div class="nl-preview-item error">❌ ${escapeHtml(p.title || '无法解析')} — ${p.error}</div>`;
-        } else {
-            const config = TYPE_CONFIG[p.type] || TYPE_CONFIG.other;
-            data.records.push({
-                id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
-                date: p.date,
-                startTime: p.startTime,
-                endTime: p.endTime,
-                title: p.title,
-                type: p.type,
-                note: ''
-            });
-            added++;
-            html += `<div class="nl-preview-item">✅ ${config.icon} ${formatDateShort(p.date)} ${p.startTime}-${p.endTime} ${escapeHtml(p.title)}</div>`;
-        }
-    });
-
-    if (added > 0) {
-        saveData(data);
-        showToast(`已添加 ${added} 条日程`);
-    }
-    el.nlPreview.innerHTML = html;
-    el.nlInput.value = '';
-    setTimeout(() => {
-        el.nlPreview.innerHTML = '';
-    }, 5000);
 }
 
 // ===== 日视图 =====
@@ -681,6 +553,13 @@ function renderDayView() {
     });
 
     html += '</div>';
+
+    // 当前时间红线：贯穿三列标记"现在"时刻（每次渲染实时刷新）
+    const now = new Date();
+    const nowHM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const nowY = 60 + visualY(nowHM);
+    html += `<div class="day-now-line" style="top:${nowY}px;"><span class="day-now-time">${nowHM}</span></div>`;
+
     container.innerHTML = html;
 
     // 滚动到时间轴顶部
@@ -726,6 +605,24 @@ function renderDayView() {
             }
         });
     });
+
+    // 启动"现在时间"红线自动移动（每 60 秒刷新位置；每次进出日视图也会由 renderDayView 重新计算）
+    startNowLineTimer();
+}
+
+// 当前时间红线：随时间自动移动（分钟级）
+function startNowLineTimer() {
+    if (nowLineTimer) return;
+    nowLineTimer = setInterval(() => {
+        if (currentView !== 'day') return;
+        const line = document.querySelector('.day-now-line');
+        if (!line) return;
+        const n = new Date();
+        const hm = `${String(n.getHours()).padStart(2, '0')}:${String(n.getMinutes()).padStart(2, '0')}`;
+        line.style.top = `${60 + visualY(hm)}px`;
+        const tag = line.querySelector('.day-now-time');
+        if (tag) tag.textContent = hm;
+    }, 60000);
 }
 
 function layoutEvents(records) {
@@ -1637,8 +1534,6 @@ function bindEvents() {
         if (target.dataset.action === 'toggle') toggleTodo(target.dataset.id);
         else if (target.dataset.action === 'delete') deleteTodo(target.dataset.id);
     });
-
-    el.nlParseBtn.addEventListener('click', handleNLParse);
 
     document.getElementById('toggleCompletedBtn')?.addEventListener('click', () => {
         showCompletedTodos = !showCompletedTodos;
